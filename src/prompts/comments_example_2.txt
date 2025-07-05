@@ -1,0 +1,30 @@
+USER:
+Please help me understand this code, with line numbers added for reference:
+```
+1| @parameterized.named_parameters(
+2|     ('true', True, ['tf.add(in1, in2)', 'tf.add(in2, in1)']),
+3|     ('false', False, ['tf.add(in1, in2)',
+4|                      'tf.add(in2, in1)',
+5|                      'tf.add_n((in1, in2))',
+6|                      'tf.add_n((in2, in1))']))
+7| def test_run_value_search_only_minimal_solutions(self, only_minimal_solutions, expected_solutions):
+8|     benchmark = benchmark_module.Benchmark(
+9|         examples=[benchmark_module.Example(inputs=[[1, 4], [2, 7]], output=[3, 11])])
+10|     results = value_search.run_value_search(
+11|         benchmark=benchmark,
+12|         settings=settings_module.from_dict({
+13|             'timeout': 20,
+14|             'max_solutions': 4,
+15|             'only_minimal_solutions': only_minimal_solutions,
+16|             'max_extra_solutions_time': 20}))
+17|     self.assertLen(results.solutions, len(expected_solutions))
+18|     self.assertEqual([s.expression for s in results.solutions], expected_solutions)
+```
+Identify the logical sections of the code and summarize them.
+Format your response by providing, for each logical section, the line number where that section starts, followed by one sentence that summarizes that section.
+Do not repeat the code; just provide the summary.
+
+ASSISTANT:
+8| Build a benchmark instance with example inputs and outputs.
+10| Execute value_search with specified timeout and solution constraints.
+17| Assert that the number and content of solutions match expectations.

@@ -1,0 +1,108 @@
+{
+  "name": "codetorch",
+  "displayName": "CodeTorch",
+  "description": "Scaffolds code with natural language and visual explanations",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.96.2"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:codetorch.annotateCurrentFile",
+    "onCommand:codetorch.helloWorld",
+    "onCommand:codetorch.summarizeFunction"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "codetorch.helloWorld",
+        "title": "Hello World"
+      },
+      {
+        "command": "codetorch.annotateCurrentFile",
+        "title": "CodeTorch: Annotate Current File",
+        "category": "CodeTorch"
+      },
+      {
+        "command": "codetorch.summarizeFunction",
+        "title": "CodeTorch: Summarize Current Function",
+        "category": "CodeTorch"
+      },
+      {
+        "command": "codetorch.nop",
+        "title": ""
+      }
+    ],
+    "configuration": {
+      "title": "CodeTorch",
+      "properties": {
+        "codetorch.model": {
+          "type": "string",
+          "default": "anthropic.claude-3-haiku-20240307-v1:0",
+          "description": "Bedrock model ID to use for summarization."
+        },
+        "codetorch.temperature": {
+          "type": "number",
+          "default": 0.3,
+          "description": "Sampling temperature for the LLM (if supported)."
+        },
+        "codetorch.commentPrefix": {
+          "type": "string",
+          "default": "// >",
+          "description": "Prefix inserted before each generated comment line."
+        },
+        "codetorch.awsRegion": {
+          "type": "string",
+          "default": "us-east-1",
+          "description": "AWS region where Bedrock is available."
+        }
+      }
+    },
+    "colors": [
+      {
+        "id": "codetorch.functionSummaryForeground",
+        "description": "Text colour for function-level summaries (CodeLens)",
+        "defaults": {
+          "light": "#4D4D4D",
+          "dark": "#BBBBBB",
+          "highContrast": "#FFFFFF"
+        }
+      },
+      {
+        "id": "codetorch.lineSummaryForeground",
+        "description": "Text colour for line-level summaries (decorations)",
+        "defaults": {
+          "light": "#666666",
+          "dark": "#909090",
+          "highContrast": "#FFFFFF"
+        }
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src",
+    "test": "vscode-test"
+  },
+  "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.508.0"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.96.2",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "20.x",
+    "@typescript-eslint/eslint-plugin": "^8.31.1",
+    "@typescript-eslint/parser": "^8.31.1",
+    "eslint": "^9.25.1",
+    "typescript": "^5.8.3",
+    "@vscode/test-cli": "^0.0.10",
+    "@vscode/test-electron": "^2.5.2"
+  }
+}

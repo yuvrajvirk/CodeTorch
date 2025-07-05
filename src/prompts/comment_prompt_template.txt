@@ -1,0 +1,8 @@
+USER:
+Please help me understand this code, with line numbers added for reference:
+```
+{{{code_with_line_numbers}}}
+```
+Identify the logical sections of the code and summarize them.
+Format your response by providing, for each logical section, the line number where that section starts, followed by one sentence that summarizes that section.
+Do not repeat the code; just provide the summary.

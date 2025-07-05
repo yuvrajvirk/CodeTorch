@@ -1,0 +1,24 @@
+USER:
+Please help me understand this code, with line numbers added for reference:
+```
+1| def random_new_variable(existing_variables: List[str], ordered: bool) -> str:
+2|     """Returns a new variable token not in existing_variables."""
+3|     if ordered:
+4|         for i in range(dsl.MAX_NUM_VARIABLES):
+5|             v = dsl.variable_token(i)
+6|             if v not in existing_variables:
+7|                 return v
+8|         raise ValueError("Could not find new variable.")
+9|     else:
+10|         choices = list(dsl.ALL_VARIABLES - set(existing_variables))
+11|         if not choices:
+12|             raise ValueError("Could not find new variable.")
+13|         return random.choice(choices)
+```
+Identify the logical sections of the code and summarize them.
+Format your response by providing, for each logical section, the line number where that section starts, followed by one sentence that summarizes that section.
+Do not repeat the code; just provide the summary.
+
+ASSISTANT:
+3| If ordered, loop through possible tokens and return the first one not already used.
+9| Otherwise, randomly choose a token not present in existing_variables.
