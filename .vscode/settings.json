@@ -9,7 +9,8 @@
 	// Turn off tsc task auto detection since we have the necessary tasks as npm scripts
 	"typescript.tsc.autoDetect": "off",
 	"workbench.colorCustomizations": {
-		"editorCodeLens.foreground": "#FFD700",
-		"codetorch.lineSummaryForeground": "#FF9800"
+		"editorCodeLens.foreground": "#ffffff",
+		"codetorch.lineSummaryForeground": "#ffffff",
+		"codetorch.lineSummaryBackground": "#ffffff"
 	}
 }

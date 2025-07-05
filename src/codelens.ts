@@ -3,7 +3,6 @@ import { detectFunctions } from './parser';
 import { summarizeFunctionSemanticUnits, SemanticUnitComment } from './llm';
 import { log } from './utils';
 import { loadSummary, saveSummary } from './storage';
-import { lineSummaryDecoration } from './decorationFactory';
 
 /**
  * FunctionSummaryCodeLensProvider
@@ -78,17 +77,15 @@ export class FunctionSummaryCodeLensProvider implements vscode.CodeLensProvider 
         }));
       }
 
-      // line-level summaries as decorations
-      const editor = vscode.window.visibleTextEditors.find(ed => ed.document === document);
-      if (editor && summaryLines.length) {
-        const decos: vscode.DecorationOptions[] = summaryLines.map(unit => {
-          const insertionLine = fn.startLine + Math.min(unit.line - 1, nextStart - fn.startLine - 1);
-          return {
-            range: new vscode.Range(insertionLine, 0, insertionLine, 0),
-            renderOptions: { after: { contentText: unit.summary } }
-          };
-        });
-        editor.setDecorations(lineSummaryDecoration, decos);
+      // line-level summaries as CodeLens
+      for (const unit of summaryLines.slice(1)) { // skip the first which is used for function summary
+        const insertionLine = fn.startLine + Math.min(unit.line - 1, nextStart - fn.startLine - 1);
+        const pos = new vscode.Position(insertionLine, 0);
+        lenses.push(new vscode.CodeLens(new vscode.Range(pos, pos), {
+          title: unit.summary,
+          command: 'codetorch.nop',
+          tooltip: 'Code summary'
+        }));
       }
     }
 
