@@ -3,6 +3,8 @@
 import * as vscode from 'vscode';
 import { detectFunctions, FunctionInfo } from './parser';
 import { outputChannel, log } from './utils';
+import { computeCallGraph, CallGraphEntry } from './callgraph';
+import { saveCallGraph, loadCallGraph } from './storage';
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
@@ -94,6 +96,61 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	});
 
+	// Collect call graph (current file)
+	const callGraphDisposable = vscode.commands.registerCommand('codetorch.collectCallGraphCurrentFile', async () => {
+		const editor = vscode.window.activeTextEditor;
+		if (!editor) {
+			vscode.window.showErrorMessage('No active editor to analyse.');
+			return;
+		}
+
+		try {
+			const graph = await computeCallGraph(editor.document);
+			await saveCallGraph(editor.document, graph);
+			log('Call graph saved', graph);
+			vscode.window.showInformationMessage(`Call graph collected for ${graph.length} functions.`);
+		} catch (err: any) {
+			console.error('Call graph generation failed', err);
+			vscode.window.showErrorMessage('Call graph generation failed: ' + (err?.message ?? err));
+		}
+	});
+
+	// View call graph (current file)
+	const viewCallGraphDisposable = vscode.commands.registerCommand('codetorch.viewCallGraphCurrentFile', async () => {
+		const editor = vscode.window.activeTextEditor;
+		if (!editor) {
+			vscode.window.showErrorMessage('No active editor to view.');
+			return;
+		}
+
+		try {
+			const graph = await loadCallGraph<CallGraphEntry[]>(editor.document);
+			if (!graph) {
+				vscode.window.showInformationMessage('No call graph data found. Run "Collect Call Graph" first.');
+				return;
+			}
+
+			// Create a formatted view of the call graph
+			const formattedGraph = graph.map((entry: CallGraphEntry) => {
+				return `${entry.name}:
+ Callers (depth 1): ${entry.depth1Callers.length > 0 ? entry.depth1Callers.join(', ') : 'none'}
+ Callers (depth 2): ${entry.depth2Callers.length > 0 ? entry.depth2Callers.join(', ') : 'none'}
+ Callees (depth 1): ${entry.depth1Callees.length > 0 ? entry.depth1Callees.join(', ') : 'none'}
+ Callees (depth 2): ${entry.depth2Callees.length > 0 ? entry.depth2Callees.join(', ') : 'none'}`;
+			}).join('\n\n');
+
+			// Show in a new document
+			const doc = await vscode.workspace.openTextDocument({
+				content: `Call Graph for ${editor.document.fileName}:\n\n${formattedGraph}`,
+				language: 'markdown'
+			});
+			await vscode.window.showTextDocument(doc);
+		} catch (err: any) {
+			console.error('Failed to view call graph:', err);
+			vscode.window.showErrorMessage('Failed to view call graph: ' + (err?.message ?? err));
+		}
+	});
+
 	const noopDisposable = vscode.commands.registerCommand('codetorch.nop', () => {});
 
 	// Register CodeLens provider for semantic summaries
@@ -104,11 +161,30 @@ export function activate(context: vscode.ExtensionContext) {
 		context.subscriptions.push(
 			vscode.languages.registerCodeLensProvider({ scheme: 'file' }, codelensProvider)
 		);
+
+		// Refresh summaries on document save
+		const saveListener = vscode.workspace.onDidSaveTextDocument((doc) => {
+			codelensProvider.handleDocumentSave(doc);
+		});
+		context.subscriptions.push(saveListener);
+
+		// Lightweight live shift on each edit (no LLM calls)
+		const changeListener = vscode.workspace.onDidChangeTextDocument((e)=>{
+			codelensProvider.handleTextDocumentChange(e);
+		});
+		context.subscriptions.push(changeListener);
+
+		// Register dispose handler for the codelens provider
+		context.subscriptions.push({
+			dispose: () => codelensProvider.dispose()
+		});
 	});
 
 	context.subscriptions.push(disposable);
 	context.subscriptions.push(annotateDisposable);
 	context.subscriptions.push(summarizeDisposable);
+	context.subscriptions.push(callGraphDisposable);
+	context.subscriptions.push(viewCallGraphDisposable);
 	context.subscriptions.push(noopDisposable);
 }
 

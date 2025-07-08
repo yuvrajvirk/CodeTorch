@@ -9,8 +9,37 @@ interface ChatMessage {
   content: string;
 }
 
-const DEFAULT_MODEL = "anthropic.claude-3-haiku-20240307-v1:0"; // cost-effective but capable
+// General LLM service interface for future extensibility
+interface LLMService {
+  name: string;
+  invoke(messages: ChatMessage[], options?: LLMOptions): Promise<string>;
+}
 
+interface LLMOptions {
+  model?: string;
+  maxTokens?: number;
+  temperature?: number;
+  retries?: number;
+  baseDelay?: number;
+}
+
+// Throttling and retry configuration
+interface RetryConfig {
+  maxRetries: number;
+  baseDelay: number;
+  maxDelay: number;
+  backoffMultiplier: number;
+}
+
+const DEFAULT_MODEL = "anthropic.claude-3-haiku-20240307-v1:0"; // cost-effective but capable
+const DEFAULT_RETRY_CONFIG: RetryConfig = {
+  maxRetries: 3,
+  baseDelay: 1000, // 1 second
+  maxDelay: 30000, // 30 seconds
+  backoffMultiplier: 2
+};
+
+// Legacy client reference (kept for backward compatibility)
 let client: BedrockRuntimeClient | undefined;
 
 function getClient(): BedrockRuntimeClient {
@@ -54,10 +83,96 @@ function streamToString(body: any): Promise<string> {
 }
 
 /**
- * Invoke an LLM hosted on AWS Bedrock. The messages array should follow the
- * standard chat format. Returns the assistant response string.
+ * Check if an error is a throttling/rate limiting error that should be retried
  */
-export async function invokeLLM(messages: ChatMessage[], options?: { model?: string; maxTokens?: number; temperature?: number }): Promise<string> {
+function isThrottlingError(error: any): boolean {
+  // AWS Bedrock throttling
+  if (error?.name === 'ThrottlingException' || error?.name === 'TooManyRequestsException') {
+    return true;
+  }
+  
+  // HTTP 429 status codes
+  if (error?.$metadata?.httpStatusCode === 429) {
+    return true;
+  }
+  
+  // Generic rate limiting error messages
+  const throttlingMessages = [
+    'rate limit',
+    'throttling',
+    'too many requests',
+    'quota exceeded',
+    'service unavailable',
+    'temporarily unavailable'
+  ];
+  
+  const errorMessage = (error?.message || error?.toString() || '').toLowerCase();
+  return throttlingMessages.some(msg => errorMessage.includes(msg));
+}
+
+/**
+ * Calculate delay for exponential backoff
+ */
+function calculateDelay(attempt: number, config: RetryConfig): number {
+  const delay = config.baseDelay * Math.pow(config.backoffMultiplier, attempt);
+  return Math.min(delay, config.maxDelay);
+}
+
+/**
+ * Sleep for a given number of milliseconds
+ */
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Retry wrapper with exponential backoff for throttling errors
+ */
+async function withRetry<T>(
+  operation: () => Promise<T>,
+  config: RetryConfig = DEFAULT_RETRY_CONFIG
+): Promise<T> {
+  let lastError: any;
+  
+  for (let attempt = 0; attempt <= config.maxRetries; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      
+      // Only retry on throttling errors
+      if (!isThrottlingError(error)) {
+        throw error;
+      }
+      
+      // Don't retry on the last attempt
+      if (attempt === config.maxRetries) {
+        break;
+      }
+      
+      const delay = calculateDelay(attempt, config);
+      log(`Throttling detected, retrying in ${delay}ms (attempt ${attempt + 1}/${config.maxRetries + 1})`);
+      
+      await sleep(delay);
+    }
+  }
+  
+  throw lastError;
+}
+
+/**
+ * AWS Bedrock LLM Service Implementation
+ */
+class AWSBedrockService implements LLMService {
+  name = 'aws-bedrock';
+  private client: BedrockRuntimeClient;
+
+  constructor() {
+    const region = vscode.workspace.getConfiguration('codetorch').get<string>('awsRegion') || process.env.AWS_REGION || 'us-east-1';
+    this.client = new BedrockRuntimeClient({ region });
+  }
+
+  async invoke(messages: ChatMessage[], options?: LLMOptions): Promise<string> {
   const cfg = vscode.workspace.getConfiguration('codetorch');
   const modelId = options?.model || cfg.get<string>('model') || DEFAULT_MODEL;
   const maxTokens = options?.maxTokens ?? 8192;
@@ -94,7 +209,6 @@ export async function invokeLLM(messages: ChatMessage[], options?: { model?: str
     };
   }
 
-  // Debug: log constructed chat messages and a truncated payload preview
   log('LLM chat messages', messages);
   log('LLM payload preview', JSON.stringify(payload).slice(0, 800));
 
@@ -106,7 +220,7 @@ export async function invokeLLM(messages: ChatMessage[], options?: { model?: str
   });
 
   log('Bedrock invoke', { modelId, maxTokens, temperature });
-  const res = await getClient().send(cmd);
+    const res = await this.client.send(cmd);
   log('Received Bedrock response headers', res.$metadata);
   if (!res.body) {
     throw new Error('Empty response from Bedrock');
@@ -116,7 +230,6 @@ export async function invokeLLM(messages: ChatMessage[], options?: { model?: str
   const text = await streamToString(res.body as any);
   const parsed = JSON.parse(text);
 
-  // after parsed computation before returning string
   log('LLM parsed response snippet', typeof parsed === 'string' ? parsed.slice(0,100) : parsed);
 
   // Anthropic / OpenAI-compatible schema
@@ -156,6 +269,93 @@ export async function invokeLLM(messages: ChatMessage[], options?: { model?: str
 
   // As a last resort, stringify the whole object
   return typeof text === 'string' ? text : JSON.stringify(parsed);
+  }
+}
+
+/**
+ * LLM Service Manager for handling multiple services
+ */
+class LLMServiceManager {
+  private services = new Map<string, LLMService>();
+  private defaultService: string = 'aws-bedrock';
+
+  constructor() {
+    // Register default AWS Bedrock service
+    this.registerService(new AWSBedrockService());
+  }
+
+  registerService(service: LLMService): void {
+    this.services.set(service.name, service);
+    log(`Registered LLM service: ${service.name}`);
+  }
+
+  getService(name?: string): LLMService {
+    const serviceName = name || this.defaultService;
+    const service = this.services.get(serviceName);
+    if (!service) {
+      throw new Error(`LLM service '${serviceName}' not found. Available services: ${Array.from(this.services.keys()).join(', ')}`);
+    }
+    return service;
+  }
+
+  getAvailableServices(): string[] {
+    return Array.from(this.services.keys());
+  }
+
+  setDefaultService(name: string): void {
+    if (!this.services.has(name)) {
+      throw new Error(`Cannot set default service to '${name}' - service not registered`);
+    }
+    this.defaultService = name;
+    log(`Default LLM service set to: ${name}`);
+  }
+}
+
+// Global service manager instance
+const serviceManager = new LLMServiceManager();
+
+/**
+ * Invoke an LLM with automatic service selection and retry logic
+ */
+export async function invokeLLM(messages: ChatMessage[], options?: LLMOptions): Promise<string> {
+  const cfg = vscode.workspace.getConfiguration('codetorch');
+  
+  // Get retry configuration from settings or use defaults
+  const retryConfig: RetryConfig = {
+    maxRetries: options?.retries ?? cfg.get<number>('maxRetries') ?? DEFAULT_RETRY_CONFIG.maxRetries,
+    baseDelay: options?.baseDelay ?? cfg.get<number>('retryBaseDelay') ?? DEFAULT_RETRY_CONFIG.baseDelay,
+    maxDelay: cfg.get<number>('retryMaxDelay') ?? DEFAULT_RETRY_CONFIG.maxDelay,
+    backoffMultiplier: cfg.get<number>('retryBackoffMultiplier') ?? DEFAULT_RETRY_CONFIG.backoffMultiplier
+  };
+
+  // Get the service to use
+  const serviceName = cfg.get<string>('llmService') || 'aws-bedrock';
+  const service = serviceManager.getService(serviceName);
+
+  return withRetry(async () => {
+    return await service.invoke(messages, options);
+  }, retryConfig);
+}
+
+/**
+ * Register a new LLM service
+ */
+export function registerLLMService(service: LLMService): void {
+  serviceManager.registerService(service);
+}
+
+/**
+ * Get available LLM services
+ */
+export function getAvailableLLMServices(): string[] {
+  return serviceManager.getAvailableServices();
+}
+
+/**
+ * Set the default LLM service
+ */
+export function setDefaultLLMService(name: string): void {
+  serviceManager.setDefaultService(name);
 }
 
 /**
@@ -174,10 +374,21 @@ export async function summarizeFunction(code: string, language: string): Promise
   return response.split('\n').map(line => `${prefix} ${line}`.trim()).join('\n');
 }
 
-export interface SemanticUnitComment {
-  line: number; // 1-based line index within the provided snippet where comment should be inserted BEFORE
-  summary: string;
+export interface ChunkSummary {
+  line: number;          // 1-based, relative to start of function
+  chunkCode: string;     // The exact code lines this summary describes
+  summary: string;       // Natural-language explanation
 }
+
+export interface FunctionSummary {
+  liveCode: string;        // Live (current) source of the function
+  lastSavedCode: string;       // Source when summaries were last generated
+  startLine: number;           // Absolute 0-based start line in the document (for live shifts)
+  units: ChunkSummary[];       // Ordered list of chunk summaries (first element can summarise entire fn)
+}
+
+// Backwards-compat alias until callers migrate fully
+export type SemanticUnitComment = ChunkSummary;
 
 /**
  * Generate detailed semantic unit summaries for a single function.

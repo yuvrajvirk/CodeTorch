@@ -13,7 +13,9 @@
     "onStartupFinished",
     "onCommand:codetorch.annotateCurrentFile",
     "onCommand:codetorch.helloWorld",
-    "onCommand:codetorch.summarizeFunction"
+    "onCommand:codetorch.summarizeFunction",
+    "onCommand:codetorch.collectCallGraphCurrentFile",
+    "onCommand:codetorch.viewCallGraphCurrentFile"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -30,6 +32,16 @@
       {
         "command": "codetorch.summarizeFunction",
         "title": "CodeTorch: Summarize Current Function",
+        "category": "CodeTorch"
+      },
+      {
+        "command": "codetorch.collectCallGraphCurrentFile",
+        "title": "CodeTorch: Collect Call Graph (Current File)",
+        "category": "CodeTorch"
+      },
+      {
+        "command": "codetorch.viewCallGraphCurrentFile",
+        "title": "CodeTorch: View Call Graph (Current File)",
         "category": "CodeTorch"
       },
       {
