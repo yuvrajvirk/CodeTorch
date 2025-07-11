@@ -1,0 +1,169 @@
+[
+  {
+    "liveCode": "export async function computeCallGraph(document: vscode.TextDocument): Promise<CallGraphEntry[]> {\n  const functions = await detectFunctions(document);\n  if (functions.length === 0) return [];\n\n  const functionNames = new Set(functions.map(f => f.name));\n  \n  const directCallees = new Map<string, Set<string>>();\n  const directCallers = new Map<string, Set<string>>();\n\n  for (const func of functions) {\n    directCallees.set(func.name, new Set());\n    directCallers.set(func.name, new Set());\n  }\n\n  const hasCallHierarchySupport = await checkCallHierarchySupport(document);\n  \n  if (hasCallHierarchySupport) {\n    await buildCallGraphWithLanguageServer(functions, directCallees, directCallers, functionNames, document);\n  } else {\n    await buildCallGraphWithRegex(functions, directCallees, directCallers, document);\n  }\n\n  const buildDepth2 = (\n    name: string,\n    directMap: Map<string, Set<string>>\n  ): string[] => {\n    const depth1 = directMap.get(name) ?? new Set<string>();\n    const depth2 = new Set<string>();\n\n    for (const intermediate of depth1) {\n      const next = directMap.get(intermediate);\n      if (!next) continue;\n      for (const candidate of next) {\n        if (candidate !== name && !depth1.has(candidate)) {\n          depth2.add(candidate);\n        }\n      }\n    }\n    return Array.from(depth2);\n  };\n\n  const entries: CallGraphEntry[] = [];\n  for (const func of functions) {\n    const depth1Callees = Array.from(directCallees.get(func.name) ?? []);\n    const depth1Callers = Array.from(directCallers.get(func.name) ?? []);\n    const depth2Callees = buildDepth2(func.name, directCallees);\n    const depth2Callers = buildDepth2(func.name, directCallers);\n\n    entries.push({\n      name: func.name,\n      depth1Callers: depth1Callers,\n      depth2Callers: depth2Callers,\n      depth1Callees: depth1Callees,\n      depth2Callees: depth2Callees,\n    });\n  }\n\n  return entries;\n}\n\n/**\n * Check if the language server supports call hierarchy for this document.\n */\n",
+    "lastSavedCode": "export async function computeCallGraph(document: vscode.TextDocument): Promise<CallGraphEntry[]> {\n  const functions = await detectFunctions(document);\n  if (functions.length === 0) return [];\n\n  const functionNames = new Set(functions.map(f => f.name));\n  \n  const directCallees = new Map<string, Set<string>>();\n  const directCallers = new Map<string, Set<string>>();\n\n  for (const func of functions) {\n    directCallees.set(func.name, new Set());\n    directCallers.set(func.name, new Set());\n  }\n\n  const hasCallHierarchySupport = await checkCallHierarchySupport(document);\n  \n  if (hasCallHierarchySupport) {\n    await buildCallGraphWithLanguageServer(functions, directCallees, directCallers, functionNames, document);\n  } else {\n    await buildCallGraphWithRegex(functions, directCallees, directCallers, document);\n  }\n\n  const buildDepth2 = (\n    name: string,\n    directMap: Map<string, Set<string>>\n  ): string[] => {\n    const depth1 = directMap.get(name) ?? new Set<string>();\n    const depth2 = new Set<string>();\n\n    for (const intermediate of depth1) {\n      const next = directMap.get(intermediate);\n      if (!next) continue;\n      for (const candidate of next) {\n        if (candidate !== name && !depth1.has(candidate)) {\n          depth2.add(candidate);\n        }\n      }\n    }\n    return Array.from(depth2);\n  };\n\n  const entries: CallGraphEntry[] = [];\n  for (const func of functions) {\n    const depth1Callees = Array.from(directCallees.get(func.name) ?? []);\n    const depth1Callers = Array.from(directCallers.get(func.name) ?? []);\n    const depth2Callees = buildDepth2(func.name, directCallees);\n    const depth2Callers = buildDepth2(func.name, directCallers);\n\n    entries.push({\n      name: func.name,\n      depth1Callers: depth1Callers,\n      depth2Callers: depth2Callers,\n      depth1Callees: depth1Callees,\n      depth2Callees: depth2Callees,\n    });\n  }\n\n  return entries;\n}\n\n/**\n * Check if the language server supports call hierarchy for this document.\n */\n",
+    "startLine": 32,
+    "units": [
+      {
+        "line": 1,
+        "chunkCode": "export async function computeCallGraph(document: vscode.TextDocument): Promise<CallGraphEntry[]> {\n  const functions = await detectFunctions(document);\n  if (functions.length === 0) return [];\n",
+        "summary": "Initializes the function to compute a call graph and performs an early exit if no functions are found."
+      },
+      {
+        "line": 5,
+        "chunkCode": "  const functionNames = new Set(functions.map(f => f.name));\n  ",
+        "summary": "Creates a set of all detected function names for efficient lookup."
+      },
+      {
+        "line": 7,
+        "chunkCode": "  const directCallees = new Map<string, Set<string>>();\n  const directCallers = new Map<string, Set<string>>();\n\n  for (const func of functions) {\n    directCallees.set(func.name, new Set());\n    directCallers.set(func.name, new Set());\n  }\n",
+        "summary": "Initializes maps to store direct callee and caller relationships for each detected function."
+      },
+      {
+        "line": 15,
+        "chunkCode": "  const hasCallHierarchySupport = await checkCallHierarchySupport(document);\n  \n  if (hasCallHierarchySupport) {\n    await buildCallGraphWithLanguageServer(functions, directCallees, directCallers, functionNames, document);\n  } else {\n    await buildCallGraphWithRegex(functions, directCallees, directCallers, document);\n  }\n",
+        "summary": "Determines whether to build the call graph using language server support or a regex-based fallback."
+      },
+      {
+        "line": 23,
+        "chunkCode": "  const buildDepth2 = (\n    name: string,\n    directMap: Map<string, Set<string>>\n  ): string[] => {\n    const depth1 = directMap.get(name) ?? new Set<string>();\n    const depth2 = new Set<string>();\n\n    for (const intermediate of depth1) {\n      const next = directMap.get(intermediate);\n      if (!next) continue;\n      for (const candidate of next) {\n        if (candidate !== name && !depth1.has(candidate)) {\n          depth2.add(candidate);\n        }\n      }\n    }\n    return Array.from(depth2);\n  };\n",
+        "summary": "Defines a helper function to calculate second-level (depth-2) callers or callees, excluding direct connections."
+      },
+      {
+        "line": 42,
+        "chunkCode": "  const entries: CallGraphEntry[] = [];\n  for (const func of functions) {\n    const depth1Callees = Array.from(directCallees.get(func.name) ?? []);\n    const depth1Callers = Array.from(directCallers.get(func.name) ?? []);\n    const depth2Callees = buildDepth2(func.name, directCallees);\n    const depth2Callers = buildDepth2(func.name, directCallers);\n\n    entries.push({\n      name: func.name,\n      depth1Callers: depth1Callers,\n      depth2Callers: depth2Callers,\n      depth1Callees: depth1Callees,\n      depth2Callees: depth2Callees,\n    });\n  }\n",
+        "summary": "Iterates through each function to compute its direct and depth-2 call relationships, then compiles them into structured entries."
+      },
+      {
+        "line": 58,
+        "chunkCode": "  return entries;\n}\n\n/**\n * Check if the language server supports call hierarchy for this document.\n */\n",
+        "summary": "Returns the final array of call graph entries."
+      }
+    ]
+  },
+  {
+    "liveCode": "async function checkCallHierarchySupport(document: vscode.TextDocument): Promise<boolean> {\n  try {\n    // Try to execute call hierarchy provider to see if it's supported\n    const testPosition = new vscode.Position(0, 0);\n    const result = await vscode.commands.executeCommand<vscode.CallHierarchyItem[]>(\n      'vscode.executeCallHierarchyProvider',\n      document.uri,\n      testPosition\n    );\n    // If we get a result (even empty), the provider is available\n    return Array.isArray(result);\n  } catch (error) {\n    console.warn('Call hierarchy not supported for this document:', error);\n    return false;\n  }\n}\n\n/**\n * Build call graph using language server call hierarchy.\n */\n",
+    "lastSavedCode": "async function checkCallHierarchySupport(document: vscode.TextDocument): Promise<boolean> {\n  try {\n    // Try to execute call hierarchy provider to see if it's supported\n    const testPosition = new vscode.Position(0, 0);\n    const result = await vscode.commands.executeCommand<vscode.CallHierarchyItem[]>(\n      'vscode.executeCallHierarchyProvider',\n      document.uri,\n      testPosition\n    );\n    // If we get a result (even empty), the provider is available\n    return Array.isArray(result);\n  } catch (error) {\n    console.warn('Call hierarchy not supported for this document:', error);\n    return false;\n  }\n}\n\n/**\n * Build call graph using language server call hierarchy.\n */\n",
+    "startLine": 95,
+    "units": [
+      {
+        "line": 1,
+        "chunkCode": "async function checkCallHierarchySupport(document: vscode.TextDocument): Promise<boolean> {\n  try {",
+        "summary": "The `checkCallHierarchySupport` function is defined to asynchronously verify if call hierarchy features are available for a given text document."
+      },
+      {
+        "line": 3,
+        "chunkCode": "    // Try to execute call hierarchy provider to see if it's supported\n    const testPosition = new vscode.Position(0, 0);\n    const result = await vscode.commands.executeCommand<vscode.CallHierarchyItem[]>(\n      'vscode.executeCallHierarchyProvider',\n      document.uri,\n      testPosition\n    );",
+        "summary": "Within a try block, the code attempts to execute a VS Code command to retrieve call hierarchy items for the document."
+      },
+      {
+        "line": 10,
+        "chunkCode": "    // If we get a result (even empty), the provider is available\n    return Array.isArray(result);",
+        "summary": "Support for call hierarchy is confirmed if the command successfully returns an array, even if empty."
+      },
+      {
+        "line": 12,
+        "chunkCode": "  } catch (error) {\n    console.warn('Call hierarchy not supported for this document:', error);\n    return false;\n  }\n}\n\n/**\n * Build call graph using language server call hierarchy.\n */\n",
+        "summary": "If an error occurs during the command execution, it indicates lack of support, a warning is logged, and the function returns false."
+      }
+    ]
+  },
+  {
+    "liveCode": "async function buildCallGraphWithLanguageServer(\n  functions: any[],\n  directCallees: Map<string, Set<string>>,\n  directCallers: Map<string, Set<string>>,\n  functionNames: Set<string>,\n  document: vscode.TextDocument\n): Promise<void> {\n  for (const func of functions) {\n    try {\n      const position = new vscode.Position(func.startLine, 0);\n      \n      const callHierarchyItems = await vscode.commands.executeCommand<vscode.CallHierarchyItem[]>(\n        'vscode.executeCallHierarchyProvider',\n        document.uri,\n        position\n      );\n\n      if (callHierarchyItems && callHierarchyItems.length > 0) {\n        await processIncomingCalls(callHierarchyItems[0], func.name, directCallers, functionNames, document);\n        \n        await processOutgoingCalls(callHierarchyItems[0], func.name, directCallees, functionNames, document);\n      }\n    } catch (error) {\n      console.warn(`Failed to get call hierarchy for function ${func.name}:`, error);\n    }\n  }\n}\n\n/**\n * Build call graph using regex-based detection (fallback).\n */\n",
+    "lastSavedCode": "async function buildCallGraphWithLanguageServer(\n  functions: any[],\n  directCallees: Map<string, Set<string>>,\n  directCallers: Map<string, Set<string>>,\n  functionNames: Set<string>,\n  document: vscode.TextDocument\n): Promise<void> {\n  for (const func of functions) {\n    try {\n      const position = new vscode.Position(func.startLine, 0);\n      \n      const callHierarchyItems = await vscode.commands.executeCommand<vscode.CallHierarchyItem[]>(\n        'vscode.executeCallHierarchyProvider',\n        document.uri,\n        position\n      );\n\n      if (callHierarchyItems && callHierarchyItems.length > 0) {\n        await processIncomingCalls(callHierarchyItems[0], func.name, directCallers, functionNames, document);\n        \n        await processOutgoingCalls(callHierarchyItems[0], func.name, directCallees, functionNames, document);\n      }\n    } catch (error) {\n      console.warn(`Failed to get call hierarchy for function ${func.name}:`, error);\n    }\n  }\n}\n\n/**\n * Build call graph using regex-based detection (fallback).\n */\n",
+    "startLine": 115,
+    "units": [
+      {
+        "line": 8,
+        "chunkCode": "  for (const func of functions) {",
+        "summary": "The function iterates through each provided function to build its call graph."
+      },
+      {
+        "line": 9,
+        "chunkCode": "    try {\n      const position = new vscode.Position(func.startLine, 0);\n      \n      const callHierarchyItems = await vscode.commands.executeCommand<vscode.CallHierarchyItem[]>(\n        'vscode.executeCallHierarchyProvider',\n        document.uri,\n        position\n      );\n",
+        "summary": "For each function, it attempts to retrieve its call hierarchy information using the Language Server Protocol."
+      },
+      {
+        "line": 18,
+        "chunkCode": "      if (callHierarchyItems && callHierarchyItems.length > 0) {\n        await processIncomingCalls(callHierarchyItems[0], func.name, directCallers, functionNames, document);\n        \n        await processOutgoingCalls(callHierarchyItems[0], func.name, directCallees, functionNames, document);\n      }",
+        "summary": "If call hierarchy data is found, it processes both incoming and outgoing calls for the current function."
+      },
+      {
+        "line": 23,
+        "chunkCode": "    } catch (error) {\n      console.warn(`Failed to get call hierarchy for function ${func.name}:`, error);\n    }\n  }\n}\n\n/**\n * Build call graph using regex-based detection (fallback).\n */\n",
+        "summary": "If an error occurs during the call hierarchy retrieval, a warning is logged to the console."
+      }
+    ]
+  },
+  {
+    "liveCode": "async function buildCallGraphWithRegex(\n  functions: any[],\n  directCallees: Map<string, Set<string>>,\n  directCallers: Map<string, Set<string>>,\n  document: vscode.TextDocument\n): Promise<void> {\n  // Helper to resolve the ending line of a function\n  const getEndLine = (index: number): number => {\n    if (index + 1 < functions.length) {\n      return functions[index + 1].startLine - 1;\n    }\n    return document.lineCount - 1;\n  };\n\n  const funcNames = functions.map(f => f.name);\n\n  // Build direct callees using regex\n  for (let i = 0; i < functions.length; i++) {\n    const fn = functions[i];\n    const fnEndLine = getEndLine(i);\n\n    const code = document.getText(\n      new vscode.Range(fn.startLine, 0, fnEndLine + 1, 0)\n    );\n\n    const callees = new Set<string>();\n    for (const candidate of funcNames) {\n      if (candidate === fn.name) continue;\n      const pattern = new RegExp(`\\\\b${candidate}\\\\s*\\\\(`);\n      if (pattern.test(code)) {\n        callees.add(candidate);\n      }\n    }\n    directCallees.set(fn.name, callees);\n  }\n\n  // Build direct callers from callees\n  for (const [caller, callees] of directCallees) {\n    for (const callee of callees) {\n      directCallers.get(callee)?.add(caller);\n    }\n  }\n}\n\n\n",
+    "lastSavedCode": "async function buildCallGraphWithRegex(\n  functions: any[],\n  directCallees: Map<string, Set<string>>,\n  directCallers: Map<string, Set<string>>,\n  document: vscode.TextDocument\n): Promise<void> {\n  // Helper to resolve the ending line of a function\n  const getEndLine = (index: number): number => {\n    if (index + 1 < functions.length) {\n      return functions[index + 1].startLine - 1;\n    }\n    return document.lineCount - 1;\n  };\n\n  const funcNames = functions.map(f => f.name);\n\n  // Build direct callees using regex\n  for (let i = 0; i < functions.length; i++) {\n    const fn = functions[i];\n    const fnEndLine = getEndLine(i);\n\n    const code = document.getText(\n      new vscode.Range(fn.startLine, 0, fnEndLine + 1, 0)\n    );\n\n    const callees = new Set<string>();\n    for (const candidate of funcNames) {\n      if (candidate === fn.name) continue;\n      const pattern = new RegExp(`\\\\b${candidate}\\\\s*\\\\(`);\n      if (pattern.test(code)) {\n        callees.add(candidate);\n      }\n    }\n    directCallees.set(fn.name, callees);\n  }\n\n  // Build direct callers from callees\n  for (const [caller, callees] of directCallees) {\n    for (const callee of callees) {\n      directCallers.get(callee)?.add(caller);\n    }\n  }\n}\n\n\n",
+    "startLine": 146,
+    "units": [
+      {
+        "line": 7,
+        "chunkCode": "  // Helper to resolve the ending line of a function\n  const getEndLine = (index: number): number => {\n    if (index + 1 < functions.length) {\n      return functions[index + 1].startLine - 1;\n    }\n    return document.lineCount - 1;\n  };\n",
+        "summary": "Defines a helper function to determine the ending line of a function's code block within the document."
+      },
+      {
+        "line": 15,
+        "chunkCode": "  const funcNames = functions.map(f => f.name);\n",
+        "summary": "Prepares a list of all function names for efficient lookup during call detection."
+      },
+      {
+        "line": 17,
+        "chunkCode": "  // Build direct callees using regex\n  for (let i = 0; i < functions.length; i++) {\n    const fn = functions[i];\n    const fnEndLine = getEndLine(i);\n\n    const code = document.getText(\n      new vscode.Range(fn.startLine, 0, fnEndLine + 1, 0)\n    );\n\n    const callees = new Set<string>();\n    for (const candidate of funcNames) {\n      if (candidate === fn.name) continue;\n      const pattern = new RegExp(`\\\\b${candidate}\\\\s*\\\\(`);\n      if (pattern.test(code)) {\n        callees.add(candidate);\n      }\n    }\n    directCallees.set(fn.name, callees);\n  }\n",
+        "summary": "Iterates through each function to identify its direct callees by searching for other function names within its code using regular expressions."
+      },
+      {
+        "line": 37,
+        "chunkCode": "  // Build direct callers from callees\n  for (const [caller, callees] of directCallees) {\n    for (const callee of callees) {\n      directCallers.get(callee)?.add(caller);\n    }\n  }\n}\n\n\n",
+        "summary": "Populates the direct callers map by reversing the relationships found in the direct callees map."
+      }
+    ]
+  },
+  {
+    "liveCode": "async function processIncomingCalls(\n  item: vscode.CallHierarchyItem,\n  functionName: string,\n  directCallers: Map<string, Set<string>>,\n  functionNames: Set<string>,\n  document: vscode.TextDocument\n): Promise<void> {\n  try {\n    const incomingCalls = await vscode.commands.executeCommand<vscode.CallHierarchyIncomingCall[]>(\n      'vscode.provideIncomingCalls',\n      item\n    );\n\n    if (incomingCalls) {\n      for (const call of incomingCalls) {\n        const callerName = call.from.name;\n        \n        // Only include callers that are functions in the same file\n        if (functionNames.has(callerName) && \n            call.from.uri.toString() === document.uri.toString()) {\n          directCallers.get(functionName)?.add(callerName);\n        }\n      }\n    }\n  } catch (error) {\n    console.warn(`Failed to get incoming calls for ${functionName}:`, error);\n  }\n}\n\n/**\n * Process outgoing calls (callees) for a function using call hierarchy.\n */\n",
+    "lastSavedCode": "async function processIncomingCalls(\n  item: vscode.CallHierarchyItem,\n  functionName: string,\n  directCallers: Map<string, Set<string>>,\n  functionNames: Set<string>,\n  document: vscode.TextDocument\n): Promise<void> {\n  try {\n    const incomingCalls = await vscode.commands.executeCommand<vscode.CallHierarchyIncomingCall[]>(\n      'vscode.provideIncomingCalls',\n      item\n    );\n\n    if (incomingCalls) {\n      for (const call of incomingCalls) {\n        const callerName = call.from.name;\n        \n        // Only include callers that are functions in the same file\n        if (functionNames.has(callerName) && \n            call.from.uri.toString() === document.uri.toString()) {\n          directCallers.get(functionName)?.add(callerName);\n        }\n      }\n    }\n  } catch (error) {\n    console.warn(`Failed to get incoming calls for ${functionName}:`, error);\n  }\n}\n\n/**\n * Process outgoing calls (callees) for a function using call hierarchy.\n */\n",
+    "startLine": 191,
+    "units": [
+      {
+        "line": 8,
+        "chunkCode": "  try {\n    const incomingCalls = await vscode.commands.executeCommand<vscode.CallHierarchyIncomingCall[]>(\n      'vscode.provideIncomingCalls',\n      item\n    );\n",
+        "summary": "Asynchronously retrieves a list of incoming call hierarchy calls for the given item."
+      },
+      {
+        "line": 14,
+        "chunkCode": "    if (incomingCalls) {\n      for (const call of incomingCalls) {\n        const callerName = call.from.name;\n        \n        // Only include callers that are functions in the same file\n        if (functionNames.has(callerName) && \n            call.from.uri.toString() === document.uri.toString()) {\n          directCallers.get(functionName)?.add(callerName);\n        }\n      }\n    }",
+        "summary": "Iterates through the retrieved incoming calls, filtering them to include only direct callers that are functions within the same document and storing them."
+      },
+      {
+        "line": 25,
+        "chunkCode": "  } catch (error) {\n    console.warn(`Failed to get incoming calls for ${functionName}:`, error);\n  }\n}\n\n/**\n * Process outgoing calls (callees) for a function using call hierarchy.\n */\n",
+        "summary": "Catches and logs any errors that occur during the retrieval of incoming call data."
+      }
+    ]
+  },
+  {
+    "liveCode": "async function processOutgoingCalls(\n  item: vscode.CallHierarchyItem,\n  functionName: string,\n  directCallees: Map<string, Set<string>>,\n  functionNames: Set<string>,\n  document: vscode.TextDocument\n): Promise<void> {\n  try {\n    const outgoingCalls = await vscode.commands.executeCommand<vscode.CallHierarchyOutgoingCall[]>(\n      'vscode.provideOutgoingCalls',\n      item\n    );\n\n    if (outgoingCalls) {\n      for (const call of outgoingCalls) {\n        const calleeName = call.to.name;\n        \n        // Only include callees that are functions in the same file\n        if (functionNames.has(calleeName) && \n            call.to.uri.toString() === document.uri.toString()) {\n          directCallees.get(functionName)?.add(calleeName);\n        }\n      }\n    }\n  } catch (error) {\n    console.warn(`Failed to get outgoing calls for ${functionName}:`, error);\n  }\n} ",
+    "lastSavedCode": "async function processOutgoingCalls(\n  item: vscode.CallHierarchyItem,\n  functionName: string,\n  directCallees: Map<string, Set<string>>,\n  functionNames: Set<string>,\n  document: vscode.TextDocument\n): Promise<void> {\n  try {\n    const outgoingCalls = await vscode.commands.executeCommand<vscode.CallHierarchyOutgoingCall[]>(\n      'vscode.provideOutgoingCalls',\n      item\n    );\n\n    if (outgoingCalls) {\n      for (const call of outgoingCalls) {\n        const calleeName = call.to.name;\n        \n        // Only include callees that are functions in the same file\n        if (functionNames.has(calleeName) && \n            call.to.uri.toString() === document.uri.toString()) {\n          directCallees.get(functionName)?.add(calleeName);\n        }\n      }\n    }\n  } catch (error) {\n    console.warn(`Failed to get outgoing calls for ${functionName}:`, error);\n  }\n} ",
+    "startLine": 223,
+    "units": [
+      {
+        "line": 8,
+        "chunkCode": "  try {\n    const outgoingCalls = await vscode.commands.executeCommand<vscode.CallHierarchyOutgoingCall[]>(\n      'vscode.provideOutgoingCalls',\n      item\n    );\n",
+        "summary": "This section attempts to retrieve outgoing call hierarchy information for the given item."
+      },
+      {
+        "line": 14,
+        "chunkCode": "    if (outgoingCalls) {\n      for (const call of outgoingCalls) {\n        const calleeName = call.to.name;\n        \n        // Only include callees that are functions in the same file\n        if (functionNames.has(calleeName) && \n            call.to.uri.toString() === document.uri.toString()) {\n          directCallees.get(functionName)?.add(calleeName);\n        }\n      }\n    }",
+        "summary": "This section iterates through the retrieved outgoing calls, filtering for relevant function calls within the same document and adding them to the direct callees map."
+      },
+      {
+        "line": 25,
+        "chunkCode": "  } catch (error) {\n    console.warn(`Failed to get outgoing calls for ${functionName}:`, error);\n  }\n} ",
+        "summary": "This section handles any errors that occur during the retrieval of outgoing call information by logging a warning."
+      }
+    ]
+  }
+]

@@ -1,0 +1,497 @@
+[
+  {
+    "liveCode": "  invoke(messages: ChatMessage[], options?: LLMOptions): Promise<string>;\n}\n\ninterface LLMOptions {\n  model?: string;\n  maxTokens?: number;\n  temperature?: number;\n  retries?: number;\n  baseDelay?: number;\n}\n\n// Throttling and retry configuration\ninterface RetryConfig {\n  maxRetries: number;\n  baseDelay: number;\n  maxDelay: number;\n  backoffMultiplier: number;\n}\n\nconst DEFAULT_MODEL = \"anthropic.claude-3-haiku-20240307-v1:0\"; \n// const DEFAULT_MODEL = \"anthropic.claude-sonnet-4-20250514-v1:0\";\n\nconst DEFAULT_RETRY_CONFIG: RetryConfig = {\n  maxRetries: 3,\n  baseDelay: 1000, // 1 second\n  maxDelay: 30000, // 30 seconds\n  backoffMultiplier: 2\n};\n\n// Legacy client reference (kept for backward compatibility)\nlet client: BedrockRuntimeClient | undefined;\n\n",
+    "lastSavedCode": "  invoke(messages: ChatMessage[], options?: LLMOptions): Promise<string>;\n}\n\ninterface LLMOptions {\n  model?: string;\n  maxTokens?: number;\n  temperature?: number;\n  retries?: number;\n  baseDelay?: number;\n}\n\n// Throttling and retry configuration\ninterface RetryConfig {\n  maxRetries: number;\n  baseDelay: number;\n  maxDelay: number;\n  backoffMultiplier: number;\n}\n\nconst DEFAULT_MODEL = \"anthropic.claude-3-haiku-20240307-v1:0\"; \n// const DEFAULT_MODEL = \"anthropic.claude-sonnet-4-20250514-v1:0\";\n\nconst DEFAULT_RETRY_CONFIG: RetryConfig = {\n  maxRetries: 3,\n  baseDelay: 1000, // 1 second\n  maxDelay: 30000, // 30 seconds\n  backoffMultiplier: 2\n};\n\n// Legacy client reference (kept for backward compatibility)\nlet client: BedrockRuntimeClient | undefined;\n\n",
+    "startLine": 15,
+    "units": [
+      {
+        "line": 1,
+        "chunkCode": "  invoke(messages: ChatMessage[], options?: LLMOptions): Promise<string>;\n}\n",
+        "summary": "Defines the `invoke` method signature for an LLM interface, including optional configuration."
+      },
+      {
+        "line": 4,
+        "chunkCode": "interface LLMOptions {\n  model?: string;\n  maxTokens?: number;\n  temperature?: number;\n  retries?: number;\n  baseDelay?: number;\n}\n\n// Throttling and retry configuration",
+        "summary": "Defines an interface that specifies optional parameters for configuring a Large Language Model call."
+      },
+      {
+        "line": 13,
+        "chunkCode": "interface RetryConfig {\n  maxRetries: number;\n  baseDelay: number;\n  maxDelay: number;\n  backoffMultiplier: number;\n}\n",
+        "summary": "Defines an interface that specifies configuration parameters for handling retries and backoff."
+      },
+      {
+        "line": 20,
+        "chunkCode": "const DEFAULT_MODEL = \"anthropic.claude-3-haiku-20240307-v1:0\"; \n// const DEFAULT_MODEL = \"anthropic.claude-sonnet-4-20250514-v1:0\";\n",
+        "summary": "Declares a constant specifying the default Large Language Model to be used."
+      },
+      {
+        "line": 23,
+        "chunkCode": "const DEFAULT_RETRY_CONFIG: RetryConfig = {\n  maxRetries: 3,\n  baseDelay: 1000, // 1 second\n  maxDelay: 30000, // 30 seconds\n  backoffMultiplier: 2\n};\n\n// Legacy client reference (kept for backward compatibility)",
+        "summary": "Defines a constant providing default values for retry and throttling configuration."
+      },
+      {
+        "line": 31,
+        "chunkCode": "let client: BedrockRuntimeClient | undefined;\n\n",
+        "summary": "Declares a variable to hold a client instance for backward compatibility."
+      }
+    ]
+  },
+  {
+    "liveCode": "function getClient(): BedrockRuntimeClient {\n  if (!client) {\n    const region = vscode.workspace.getConfiguration('codetorch').get<string>('awsRegion') || process.env.AWS_REGION || 'us-east-1';\n    client = new BedrockRuntimeClient({ region });\n  }\n  return client;\n}\n\n// Utility to convert async iterable / stream into string\n",
+    "lastSavedCode": "function getClient(): BedrockRuntimeClient {\n  if (!client) {\n    const region = vscode.workspace.getConfiguration('codetorch').get<string>('awsRegion') || process.env.AWS_REGION || 'us-east-1';\n    client = new BedrockRuntimeClient({ region });\n  }\n  return client;\n}\n\n// Utility to convert async iterable / stream into string\n",
+    "startLine": 47,
+    "units": [
+      {
+        "line": 1,
+        "chunkCode": "function getClient(): BedrockRuntimeClient {",
+        "summary": "Defines the `getClient` function, which provides a Bedrock runtime client."
+      },
+      {
+        "line": 2,
+        "chunkCode": "  if (!client) {",
+        "summary": "Checks if a client instance already exists to ensure lazy initialization."
+      },
+      {
+        "line": 3,
+        "chunkCode": "    const region = vscode.workspace.getConfiguration('codetorch').get<string>('awsRegion') || process.env.AWS_REGION || 'us-east-1';",
+        "summary": "Retrieves the AWS region from configuration settings or environment variables, defaulting if none are found."
+      },
+      {
+        "line": 4,
+        "chunkCode": "    client = new BedrockRuntimeClient({ region });\n  }",
+        "summary": "Instantiates a new `BedrockRuntimeClient` using the determined region."
+      },
+      {
+        "line": 6,
+        "chunkCode": "  return client;\n}\n\n// Utility to convert async iterable / stream into string\n",
+        "summary": "Returns the existing or newly created `BedrockRuntimeClient` instance."
+      }
+    ]
+  },
+  {
+    "liveCode": "function streamToString(body: any): Promise<string> {\n  if (!body) return Promise.resolve('');\n\n  // 1. Already a string\n  if (typeof body === 'string') {\n    return Promise.resolve(body);\n  }\n\n  // 2. Uint8Array or Buffer\n  if (body instanceof Uint8Array || Buffer.isBuffer(body)) {\n    return Promise.resolve(Buffer.from(body).toString('utf8'));\n  }\n\n  // 3. Blob-like (browser)\n  if (typeof body.text === 'function') {\n    return body.text();\n  }\n\n  // 4. ReadableStream (Node) – fallback\n  return new Promise((resolve, reject) => {\n    const chunks: Uint8Array[] = [];\n    if (typeof body.on === 'function') {\n      body.on('data', (chunk: Uint8Array) => chunks.push(chunk));\n      body.on('error', reject);\n      body.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));\n    } else {\n      reject(new Error('Unsupported response body type'));\n    }\n  });\n}\n\n/**\n * Check if an error is a throttling/rate limiting error that should be retried\n */\n",
+    "lastSavedCode": "function streamToString(body: any): Promise<string> {\n  if (!body) return Promise.resolve('');\n\n  // 1. Already a string\n  if (typeof body === 'string') {\n    return Promise.resolve(body);\n  }\n\n  // 2. Uint8Array or Buffer\n  if (body instanceof Uint8Array || Buffer.isBuffer(body)) {\n    return Promise.resolve(Buffer.from(body).toString('utf8'));\n  }\n\n  // 3. Blob-like (browser)\n  if (typeof body.text === 'function') {\n    return body.text();\n  }\n\n  // 4. ReadableStream (Node) – fallback\n  return new Promise((resolve, reject) => {\n    const chunks: Uint8Array[] = [];\n    if (typeof body.on === 'function') {\n      body.on('data', (chunk: Uint8Array) => chunks.push(chunk));\n      body.on('error', reject);\n      body.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));\n    } else {\n      reject(new Error('Unsupported response body type'));\n    }\n  });\n}\n\n/**\n * Check if an error is a throttling/rate limiting error that should be retried\n */\n",
+    "startLine": 56,
+    "units": [
+      {
+        "line": 1,
+        "chunkCode": "function streamToString(body: any): Promise<string> {\n  if (!body) return Promise.resolve('');\n\n  // 1. Already a string",
+        "summary": "If the body is null or undefined, an empty string promise is immediately returned."
+      },
+      {
+        "line": 5,
+        "chunkCode": "  if (typeof body === 'string') {\n    return Promise.resolve(body);\n  }\n\n  // 2. Uint8Array or Buffer",
+        "summary": "If the body is already a string, it is resolved as is."
+      },
+      {
+        "line": 10,
+        "chunkCode": "  if (body instanceof Uint8Array || Buffer.isBuffer(body)) {\n    return Promise.resolve(Buffer.from(body).toString('utf8'));\n  }\n\n  // 3. Blob-like (browser)",
+        "summary": "If the body is a `Uint8Array` or `Buffer`, it is converted to a UTF-8 string."
+      },
+      {
+        "line": 15,
+        "chunkCode": "  if (typeof body.text === 'function') {\n    return body.text();\n  }\n\n  // 4. ReadableStream (Node) – fallback",
+        "summary": "If the body has a `text` method (like a Blob or Response in a browser), its result is returned."
+      },
+      {
+        "line": 20,
+        "chunkCode": "  return new Promise((resolve, reject) => {\n    const chunks: Uint8Array[] = [];\n    if (typeof body.on === 'function') {\n      body.on('data', (chunk: Uint8Array) => chunks.push(chunk));\n      body.on('error', reject);\n      body.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));\n    } else {\n      reject(new Error('Unsupported response body type'));\n    }\n  });\n}\n\n/**\n * Check if an error is a throttling/rate limiting error that should be retried\n */\n",
+        "summary": "Otherwise, for a Node.js `ReadableStream`, data chunks are collected and resolved as a UTF-8 string upon stream completion, or an error is rejected for unsupported types."
+      }
+    ]
+  },
+  {
+    "liveCode": "function isThrottlingError(error: any): boolean {\n  // AWS Bedrock throttling\n  if (error?.name === 'ThrottlingException' || error?.name === 'TooManyRequestsException') {\n    return true;\n  }\n  \n  // HTTP 429 status codes\n  if (error?.$metadata?.httpStatusCode === 429) {\n    return true;\n  }\n  \n  // Generic rate limiting error messages\n  const throttlingMessages = [\n    'rate limit',\n    'throttling',\n    'too many requests',\n    'quota exceeded',\n    'service unavailable',\n    'temporarily unavailable'\n  ];\n  \n  const errorMessage = (error?.message || error?.toString() || '').toLowerCase();\n  return throttlingMessages.some(msg => errorMessage.includes(msg));\n}\n\n/**\n * Calculate delay for exponential backoff\n */\n",
+    "lastSavedCode": "function isThrottlingError(error: any): boolean {\n  // AWS Bedrock throttling\n  if (error?.name === 'ThrottlingException' || error?.name === 'TooManyRequestsException') {\n    return true;\n  }\n  \n  // HTTP 429 status codes\n  if (error?.$metadata?.httpStatusCode === 429) {\n    return true;\n  }\n  \n  // Generic rate limiting error messages\n  const throttlingMessages = [\n    'rate limit',\n    'throttling',\n    'too many requests',\n    'quota exceeded',\n    'service unavailable',\n    'temporarily unavailable'\n  ];\n  \n  const errorMessage = (error?.message || error?.toString() || '').toLowerCase();\n  return throttlingMessages.some(msg => errorMessage.includes(msg));\n}\n\n/**\n * Calculate delay for exponential backoff\n */\n",
+    "startLine": 90,
+    "units": [
+      {
+        "line": 3,
+        "chunkCode": "  if (error?.name === 'ThrottlingException' || error?.name === 'TooManyRequestsException') {\n    return true;\n  }\n  \n  // HTTP 429 status codes",
+        "summary": "Checks if the error's name property indicates a throttling exception specific to services like AWS Bedrock."
+      },
+      {
+        "line": 8,
+        "chunkCode": "  if (error?.$metadata?.httpStatusCode === 429) {\n    return true;\n  }\n  ",
+        "summary": "Checks if the error's metadata includes an HTTP status code of 429, indicating too many requests."
+      },
+      {
+        "line": 12,
+        "chunkCode": "  // Generic rate limiting error messages\n  const throttlingMessages = [\n    'rate limit',\n    'throttling',\n    'too many requests',\n    'quota exceeded',\n    'service unavailable',\n    'temporarily unavailable'\n  ];\n  \n  const errorMessage = (error?.message || error?.toString() || '').toLowerCase();\n  return throttlingMessages.some(msg => errorMessage.includes(msg));\n}\n\n/**\n * Calculate delay for exponential backoff\n */\n",
+        "summary": "Determines if the error message contains any common keywords associated with rate limiting or throttling."
+      }
+    ]
+  },
+  {
+    "liveCode": "function calculateDelay(attempt: number, config: RetryConfig): number {\n  const delay = config.baseDelay * Math.pow(config.backoffMultiplier, attempt);\n  return Math.min(delay, config.maxDelay);\n}\n\n/**\n * Sleep for a given number of milliseconds\n */\n",
+    "lastSavedCode": "function calculateDelay(attempt: number, config: RetryConfig): number {\n  const delay = config.baseDelay * Math.pow(config.backoffMultiplier, attempt);\n  return Math.min(delay, config.maxDelay);\n}\n\n/**\n * Sleep for a given number of milliseconds\n */\n",
+    "startLine": 118,
+    "units": [
+      {
+        "line": 1,
+        "chunkCode": "function calculateDelay(attempt: number, config: RetryConfig): number {\n  const delay = config.baseDelay * Math.pow(config.backoffMultiplier, attempt);",
+        "summary": "This function calculates an exponential backoff delay based on the attempt number and configuration."
+      },
+      {
+        "line": 3,
+        "chunkCode": "  return Math.min(delay, config.maxDelay);\n}",
+        "summary": "The calculated delay is then capped at a maximum value specified in the configuration."
+      },
+      {
+        "line": 5,
+        "chunkCode": "\n/**\n * Sleep for a given number of milliseconds\n */\n",
+        "summary": "This multi-line comment block provides documentation for a `sleep` function not defined in the provided code snippet."
+      }
+    ]
+  },
+  {
+    "liveCode": "function sleep(ms: number): Promise<void> {\n  return new Promise(resolve => setTimeout(resolve, ms));\n}\n\n/**\n * Retry wrapper with exponential backoff for throttling errors\n */\n",
+    "lastSavedCode": "function sleep(ms: number): Promise<void> {\n  return new Promise(resolve => setTimeout(resolve, ms));\n}\n\n/**\n * Retry wrapper with exponential backoff for throttling errors\n */\n",
+    "startLine": 126,
+    "units": [
+      {
+        "line": 1,
+        "chunkCode": "function sleep(ms: number): Promise<void> {\n  return new Promise(resolve => setTimeout(resolve, ms));\n}\n",
+        "summary": "This section defines an asynchronous `sleep` function that pauses execution for a given duration."
+      },
+      {
+        "line": 5,
+        "chunkCode": "/**\n * Retry wrapper with exponential backoff for throttling errors\n */\n",
+        "summary": "This section is a JSDoc comment describing the purpose of an upcoming retry wrapper."
+      }
+    ]
+  },
+  {
+    "liveCode": "async function withRetry<T>(\n  operation: () => Promise<T>,\n  config: RetryConfig = DEFAULT_RETRY_CONFIG\n): Promise<T> {\n  let lastError: any;\n  \n  for (let attempt = 0; attempt <= config.maxRetries; attempt++) {\n    try {\n      return await operation();\n    } catch (error) {\n      lastError = error;\n      \n      // Only retry on throttling errors\n      if (!isThrottlingError(error)) {\n        throw error;\n      }\n      \n      // Don't retry on the last attempt\n      if (attempt === config.maxRetries) {\n        break;\n      }\n      \n      const delay = calculateDelay(attempt, config);\n      log(`Throttling detected, retrying in ${delay}ms (attempt ${attempt + 1}/${config.maxRetries + 1})`);\n      \n      await sleep(delay);\n    }\n  }\n  \n  throw lastError;\n}\n\n/**\n * AWS Bedrock LLM Service Implementation\n */\nclass AWSBedrockService implements LLMService {\n  name = 'aws-bedrock';\n  private client: BedrockRuntimeClient;\n\n  constructor() {\n    const region = vscode.workspace.getConfiguration('codetorch').get<string>('awsRegion') || process.env.AWS_REGION || 'us-east-1';\n    this.client = new BedrockRuntimeClient({ region });\n  }\n\n",
+    "lastSavedCode": "async function withRetry<T>(\n  operation: () => Promise<T>,\n  config: RetryConfig = DEFAULT_RETRY_CONFIG\n): Promise<T> {\n  let lastError: any;\n  \n  for (let attempt = 0; attempt <= config.maxRetries; attempt++) {\n    try {\n      return await operation();\n    } catch (error) {\n      lastError = error;\n      \n      // Only retry on throttling errors\n      if (!isThrottlingError(error)) {\n        throw error;\n      }\n      \n      // Don't retry on the last attempt\n      if (attempt === config.maxRetries) {\n        break;\n      }\n      \n      const delay = calculateDelay(attempt, config);\n      log(`Throttling detected, retrying in ${delay}ms (attempt ${attempt + 1}/${config.maxRetries + 1})`);\n      \n      await sleep(delay);\n    }\n  }\n  \n  throw lastError;\n}\n\n/**\n * AWS Bedrock LLM Service Implementation\n */\nclass AWSBedrockService implements LLMService {\n  name = 'aws-bedrock';\n  private client: BedrockRuntimeClient;\n\n  constructor() {\n    const region = vscode.workspace.getConfiguration('codetorch').get<string>('awsRegion') || process.env.AWS_REGION || 'us-east-1';\n    this.client = new BedrockRuntimeClient({ region });\n  }\n\n",
+    "startLine": 133,
+    "units": [
+      {
+        "line": 1,
+        "chunkCode": "async function withRetry<T>(\n  operation: () => Promise<T>,\n  config: RetryConfig = DEFAULT_RETRY_CONFIG\n): Promise<T> {\n  let lastError: any;\n  \n  for (let attempt = 0; attempt <= config.maxRetries; attempt++) {\n    try {\n      return await operation();\n    } catch (error) {\n      lastError = error;\n      \n      // Only retry on throttling errors\n      if (!isThrottlingError(error)) {\n        throw error;\n      }\n      \n      // Don't retry on the last attempt\n      if (attempt === config.maxRetries) {\n        break;\n      }\n      \n      const delay = calculateDelay(attempt, config);\n      log(`Throttling detected, retrying in ${delay}ms (attempt ${attempt + 1}/${config.maxRetries + 1})`);\n      \n      await sleep(delay);\n    }\n  }\n  \n  throw lastError;\n}\n\n/**\n * AWS Bedrock LLM Service Implementation\n */",
+        "summary": "This asynchronous function attempts to execute a given operation multiple times, implementing a retry mechanism specifically for throttling errors with a calculated delay between attempts."
+      },
+      {
+        "line": 36,
+        "chunkCode": "class AWSBedrockService implements LLMService {\n  name = 'aws-bedrock';\n  private client: BedrockRuntimeClient;\n\n  constructor() {\n    const region = vscode.workspace.getConfiguration('codetorch').get<string>('awsRegion') || process.env.AWS_REGION || 'us-east-1';\n    this.client = new BedrockRuntimeClient({ region });\n  }\n\n",
+        "summary": "This class defines an AWS Bedrock LLM service, including its name and a constructor that initializes an AWS Bedrock Runtime client using configured or default AWS region settings."
+      }
+    ]
+  },
+  {
+    "liveCode": "  async invoke(messages: ChatMessage[], options?: LLMOptions): Promise<string> {\n    const cfg = vscode.workspace.getConfiguration('codetorch');\n    const modelId = options?.model || cfg.get<string>('model') || DEFAULT_MODEL;\n    // Anthropic Claude models support up to 4 096 output tokens (see Bedrock docs).\n    const requestedMax = options?.maxTokens ?? 8192;\n    const maxTokens = Math.min(requestedMax, 4096);\n    const temperature = options?.temperature ?? cfg.get<number>('temperature') ?? 0;\n\n    let payload: Record<string, unknown>;\n\n    if (modelId.startsWith('anthropic.') || modelId.startsWith('us.anthropic.')) {\n      // Anthropic models require a specific schema\n      let systemPrompt: string | undefined;\n      // Claude 3/4 Messages API expects `content` to be an **array** of content blocks.\n      const chatMessages: { role: 'user' | 'assistant'; content: { type: 'text'; text: string }[] }[] = [];\n\n      for (const msg of messages) {\n        if (msg.role === 'system') {\n          systemPrompt = systemPrompt ? `${systemPrompt}\\n${msg.content}` : msg.content;\n        } else if (msg.role === 'user' || msg.role === 'assistant') {\n          chatMessages.push({\n            role: msg.role,\n            content: [{ type: 'text', text: msg.content }]\n          });\n        }\n      }\n\n      payload = {\n        anthropic_version: 'bedrock-2023-05-31',\n        max_tokens: maxTokens,\n        temperature: temperature,\n        messages: chatMessages,\n        ...(systemPrompt ? { system: systemPrompt } : {})\n      };\n    } else if (modelId.startsWith('meta.llama') || modelId.startsWith('us.meta.llama')) {\n      // Meta Llama 3 models use a native prompt string plus native parameters\n      let systemMessage: string | undefined;\n      let userMessage: string | undefined;\n\n      for (const msg of messages) {\n        if (msg.role === 'system' && !systemMessage) {\n          systemMessage = msg.content;\n        } else if (msg.role === 'user') {\n          // Keep the most recent user turn\n          userMessage = msg.content;\n        }\n      }\n\n      if (!userMessage) {\n        throw new Error('Llama 3 invocation requires at least one user message');\n      }\n\n      // Build Llama 3 instruction-style prompt\n      const promptParts: string[] = [];\n      promptParts.push('<|begin_of_text|>');\n      if (systemMessage) {\n        promptParts.push(`<|start_header_id|>system<|end_header_id|>\\n${systemMessage}\\n<|eot_id|>`);\n      }\n      promptParts.push(`<|start_header_id|>user<|end_header_id|>\\n${userMessage}\\n<|eot_id|>`);\n      // Assistant header to signal model to generate\n      promptParts.push('<|start_header_id|>assistant<|end_header_id|>');\n\n      const llamaPrompt = promptParts.join('\\n');\n\n      payload = {\n        prompt: llamaPrompt,\n        max_gen_len: Math.min(maxTokens, 2048), // Llama 3 supports up to 2048 generated tokens\n        temperature: temperature,\n        top_p: cfg.get<number>('topP') ?? 0.9\n      };\n    } else {\n      // Generic schema (e.g., Titan, Llama)\n      payload = {\n        messages: messages.map(m => ({ role: m.role, content: m.content })),\n        max_tokens: maxTokens,\n        temperature: temperature\n      };\n    }\n\n    log('LLM chat messages', messages);\n    log('LLM payload preview', JSON.stringify(payload).slice(0, 800));\n\n    const cmd = new InvokeModelCommand({\n      modelId,\n      contentType: 'application/json',\n      accept: 'application/json',\n      body: JSON.stringify(payload)\n    });\n\n    log('Bedrock invoke', { modelId, maxTokens, temperature });\n    let res;\n    try {\n      res = await this.client.send(cmd);\n    } catch (error: any) {\n      // Surface the detailed Bedrock error message to the output channel\n      log('Bedrock invoke error', {\n        name: error?.name,\n        message: error?.message,\n        details: error,\n      });\n      throw error;\n    }\n    log('Received Bedrock response headers', res.$metadata);\n    if (!res.body) {\n      throw new Error('Empty response from Bedrock');\n    }\n\n    // Bedrock returns a stream; convert to string (Node env)\n    const text = await streamToString(res.body as any);\n    const parsed = JSON.parse(text);\n\n    log('LLM parsed response snippet', typeof parsed === 'string' ? parsed.slice(0,100) : parsed);\n\n    // Anthropic / OpenAI-compatible schema\n    if (Array.isArray(parsed?.choices) && parsed.choices.length) {\n      const choice = parsed.choices[0];\n      return (\n        choice.message?.content || // chat\n        choice.text ||\n        ''\n      );\n    }\n\n    // Titan Text models\n    if (Array.isArray(parsed?.results) && parsed.results.length) {\n      return parsed.results[0].outputText || parsed.results[0].text || '';\n    }\n\n    // Meta Llama 3 native response\n    if (typeof parsed.generation === 'string') {\n      return parsed.generation;\n    }\n\n    // Cohere / Llama2 etc.\n    if (typeof parsed.generated_text === 'string') {\n      return parsed.generated_text;\n    }\n\n    // Generic {content: string}\n    if (typeof parsed.content === 'string') {\n      return parsed.content;\n    }\n\n    // Bedrock message-style schema (Claude streaming or non-chat)\n    if (parsed?.type === 'message' && Array.isArray(parsed.content)) {\n      const textPieces = parsed.content\n        .filter((c: any) => c?.type === 'text' && typeof c.text === 'string')\n        .map((c: any) => c.text);\n      if (textPieces.length) {\n        return textPieces.join('');\n      }\n    }\n\n    // As a last resort, stringify the whole object\n    return typeof text === 'string' ? text : JSON.stringify(parsed);\n  }\n}\n\n/**\n * Google Gemini LLM Service Implementation\n */\nclass GoogleGeminiService implements LLMService {\n  name = 'google-gemini';\n  private apiKey: string;\n  private genAI: any; // Lazy-initialised GoogleGenAI instance (SDK lacks TS types)\n\n  constructor() {\n    this.apiKey = vscode.workspace.getConfiguration('codetorch').get<string>('googleApiKey') ||\n      process.env.GEMINI_API_KEY ||\n      process.env.GOOGLE_API_KEY ||\n      process.env.GOOGLE_AI_API_KEY || '';\n\n    if (!this.apiKey) {\n      log('Google Gemini API key not configured. Set `codetorch.googleApiKey` or env var GEMINI_API_KEY.');\n    }\n\n    // Dynamically require the SDK only when the service is first constructed\n    try {\n      // eslint-disable-next-line @typescript-eslint/no-var-requires\n      const { GoogleGenAI } = require('@google/genai');\n      this.genAI = new GoogleGenAI({ apiKey: this.apiKey });\n    } catch (err) {\n      log('Failed to load @google/genai package', err as any);\n      throw new Error('Missing dependency @google/genai – please run `npm install @google/genai` inside the extension workspace.');\n    }\n  }\n\n",
+    "lastSavedCode": "  async invoke(messages: ChatMessage[], options?: LLMOptions): Promise<string> {\n    const cfg = vscode.workspace.getConfiguration('codetorch');\n    const modelId = options?.model || cfg.get<string>('model') || DEFAULT_MODEL;\n    // Anthropic Claude models support up to 4 096 output tokens (see Bedrock docs).\n    const requestedMax = options?.maxTokens ?? 8192;\n    const maxTokens = Math.min(requestedMax, 4096);\n    const temperature = options?.temperature ?? cfg.get<number>('temperature') ?? 0;\n\n    let payload: Record<string, unknown>;\n\n    if (modelId.startsWith('anthropic.') || modelId.startsWith('us.anthropic.')) {\n      // Anthropic models require a specific schema\n      let systemPrompt: string | undefined;\n      // Claude 3/4 Messages API expects `content` to be an **array** of content blocks.\n      const chatMessages: { role: 'user' | 'assistant'; content: { type: 'text'; text: string }[] }[] = [];\n\n      for (const msg of messages) {\n        if (msg.role === 'system') {\n          systemPrompt = systemPrompt ? `${systemPrompt}\\n${msg.content}` : msg.content;\n        } else if (msg.role === 'user' || msg.role === 'assistant') {\n          chatMessages.push({\n            role: msg.role,\n            content: [{ type: 'text', text: msg.content }]\n          });\n        }\n      }\n\n      payload = {\n        anthropic_version: 'bedrock-2023-05-31',\n        max_tokens: maxTokens,\n        temperature: temperature,\n        messages: chatMessages,\n        ...(systemPrompt ? { system: systemPrompt } : {})\n      };\n    } else if (modelId.startsWith('meta.llama') || modelId.startsWith('us.meta.llama')) {\n      // Meta Llama 3 models use a native prompt string plus native parameters\n      let systemMessage: string | undefined;\n      let userMessage: string | undefined;\n\n      for (const msg of messages) {\n        if (msg.role === 'system' && !systemMessage) {\n          systemMessage = msg.content;\n        } else if (msg.role === 'user') {\n          // Keep the most recent user turn\n          userMessage = msg.content;\n        }\n      }\n\n      if (!userMessage) {\n        throw new Error('Llama 3 invocation requires at least one user message');\n      }\n\n      // Build Llama 3 instruction-style prompt\n      const promptParts: string[] = [];\n      promptParts.push('<|begin_of_text|>');\n      if (systemMessage) {\n        promptParts.push(`<|start_header_id|>system<|end_header_id|>\\n${systemMessage}\\n<|eot_id|>`);\n      }\n      promptParts.push(`<|start_header_id|>user<|end_header_id|>\\n${userMessage}\\n<|eot_id|>`);\n      // Assistant header to signal model to generate\n      promptParts.push('<|start_header_id|>assistant<|end_header_id|>');\n\n      const llamaPrompt = promptParts.join('\\n');\n\n      payload = {\n        prompt: llamaPrompt,\n        max_gen_len: Math.min(maxTokens, 2048), // Llama 3 supports up to 2048 generated tokens\n        temperature: temperature,\n        top_p: cfg.get<number>('topP') ?? 0.9\n      };\n    } else {\n      // Generic schema (e.g., Titan, Llama)\n      payload = {\n        messages: messages.map(m => ({ role: m.role, content: m.content })),\n        max_tokens: maxTokens,\n        temperature: temperature\n      };\n    }\n\n    log('LLM chat messages', messages);\n    log('LLM payload preview', JSON.stringify(payload).slice(0, 800));\n\n    const cmd = new InvokeModelCommand({\n      modelId,\n      contentType: 'application/json',\n      accept: 'application/json',\n      body: JSON.stringify(payload)\n    });\n\n    log('Bedrock invoke', { modelId, maxTokens, temperature });\n    let res;\n    try {\n      res = await this.client.send(cmd);\n    } catch (error: any) {\n      // Surface the detailed Bedrock error message to the output channel\n      log('Bedrock invoke error', {\n        name: error?.name,\n        message: error?.message,\n        details: error,\n      });\n      throw error;\n    }\n    log('Received Bedrock response headers', res.$metadata);\n    if (!res.body) {\n      throw new Error('Empty response from Bedrock');\n    }\n\n    // Bedrock returns a stream; convert to string (Node env)\n    const text = await streamToString(res.body as any);\n    const parsed = JSON.parse(text);\n\n    log('LLM parsed response snippet', typeof parsed === 'string' ? parsed.slice(0,100) : parsed);\n\n    // Anthropic / OpenAI-compatible schema\n    if (Array.isArray(parsed?.choices) && parsed.choices.length) {\n      const choice = parsed.choices[0];\n      return (\n        choice.message?.content || // chat\n        choice.text ||\n        ''\n      );\n    }\n\n    // Titan Text models\n    if (Array.isArray(parsed?.results) && parsed.results.length) {\n      return parsed.results[0].outputText || parsed.results[0].text || '';\n    }\n\n    // Meta Llama 3 native response\n    if (typeof parsed.generation === 'string') {\n      return parsed.generation;\n    }\n\n    // Cohere / Llama2 etc.\n    if (typeof parsed.generated_text === 'string') {\n      return parsed.generated_text;\n    }\n\n    // Generic {content: string}\n    if (typeof parsed.content === 'string') {\n      return parsed.content;\n    }\n\n    // Bedrock message-style schema (Claude streaming or non-chat)\n    if (parsed?.type === 'message' && Array.isArray(parsed.content)) {\n      const textPieces = parsed.content\n        .filter((c: any) => c?.type === 'text' && typeof c.text === 'string')\n        .map((c: any) => c.text);\n      if (textPieces.length) {\n        return textPieces.join('');\n      }\n    }\n\n    // As a last resort, stringify the whole object\n    return typeof text === 'string' ? text : JSON.stringify(parsed);\n  }\n}\n\n/**\n * Google Gemini LLM Service Implementation\n */\nclass GoogleGeminiService implements LLMService {\n  name = 'google-gemini';\n  private apiKey: string;\n  private genAI: any; // Lazy-initialised GoogleGenAI instance (SDK lacks TS types)\n\n  constructor() {\n    this.apiKey = vscode.workspace.getConfiguration('codetorch').get<string>('googleApiKey') ||\n      process.env.GEMINI_API_KEY ||\n      process.env.GOOGLE_API_KEY ||\n      process.env.GOOGLE_AI_API_KEY || '';\n\n    if (!this.apiKey) {\n      log('Google Gemini API key not configured. Set `codetorch.googleApiKey` or env var GEMINI_API_KEY.');\n    }\n\n    // Dynamically require the SDK only when the service is first constructed\n    try {\n      // eslint-disable-next-line @typescript-eslint/no-var-requires\n      const { GoogleGenAI } = require('@google/genai');\n      this.genAI = new GoogleGenAI({ apiKey: this.apiKey });\n    } catch (err) {\n      log('Failed to load @google/genai package', err as any);\n      throw new Error('Missing dependency @google/genai – please run `npm install @google/genai` inside the extension workspace.');\n    }\n  }\n\n",
+    "startLine": 177,
+    "units": [
+      {
+        "line": 1,
+        "chunkCode": "  async invoke(messages: ChatMessage[], options?: LLMOptions): Promise<string> {\n    const cfg = vscode.workspace.getConfiguration('codetorch');\n    const modelId = options?.model || cfg.get<string>('model') || DEFAULT_MODEL;\n    // Anthropic Claude models support up to 4 096 output tokens (see Bedrock docs).\n    const requestedMax = options?.maxTokens ?? 8192;\n    const maxTokens = Math.min(requestedMax, 4096);\n    const temperature = options?.temperature ?? cfg.get<number>('temperature') ?? 0;\n\n    let payload: Record<string, unknown>;\n",
+        "summary": "Initializes model configuration parameters like ID, max tokens, and temperature, prioritizing options over workspace settings."
+      },
+      {
+        "line": 11,
+        "chunkCode": "    if (modelId.startsWith('anthropic.') || modelId.startsWith('us.anthropic.')) {\n      // Anthropic models require a specific schema\n      let systemPrompt: string | undefined;\n      // Claude 3/4 Messages API expects `content` to be an **array** of content blocks.\n      const chatMessages: { role: 'user' | 'assistant'; content: { type: 'text'; text: string }[] }[] = [];\n\n      for (const msg of messages) {\n        if (msg.role === 'system') {\n          systemPrompt = systemPrompt ? `${systemPrompt}\\n${msg.content}` : msg.content;\n        } else if (msg.role === 'user' || msg.role === 'assistant') {\n          chatMessages.push({\n            role: msg.role,\n            content: [{ type: 'text', text: msg.content }]\n          });\n        }\n      }\n\n      payload = {\n        anthropic_version: 'bedrock-2023-05-31',\n        max_tokens: maxTokens,\n        temperature: temperature,\n        messages: chatMessages,\n        ...(systemPrompt ? { system: systemPrompt } : {})\n      };",
+        "summary": "Formats the input messages into a specific payload structure required by Anthropic models, distinguishing system prompts and regular chat messages."
+      },
+      {
+        "line": 35,
+        "chunkCode": "    } else if (modelId.startsWith('meta.llama') || modelId.startsWith('us.meta.llama')) {\n      // Meta Llama 3 models use a native prompt string plus native parameters\n      let systemMessage: string | undefined;\n      let userMessage: string | undefined;\n\n      for (const msg of messages) {\n        if (msg.role === 'system' && !systemMessage) {\n          systemMessage = msg.content;\n        } else if (msg.role === 'user') {\n          // Keep the most recent user turn\n          userMessage = msg.content;\n        }\n      }\n\n      if (!userMessage) {\n        throw new Error('Llama 3 invocation requires at least one user message');\n      }\n\n      // Build Llama 3 instruction-style prompt\n      const promptParts: string[] = [];\n      promptParts.push('<|begin_of_text|>');\n      if (systemMessage) {\n        promptParts.push(`<|start_header_id|>system<|end_header_id|>\\n${systemMessage}\\n<|eot_id|>`);\n      }\n      promptParts.push(`<|start_header_id|>user<|end_header_id|>\\n${userMessage}\\n<|eot_id|>`);\n      // Assistant header to signal model to generate\n      promptParts.push('<|start_header_id|>assistant<|end_header_id|>');\n\n      const llamaPrompt = promptParts.join('\\n');\n\n      payload = {\n        prompt: llamaPrompt,\n        max_gen_len: Math.min(maxTokens, 2048), // Llama 3 supports up to 2048 generated tokens\n        temperature: temperature,\n        top_p: cfg.get<number>('topP') ?? 0.9\n      };\n    } else {",
+        "summary": "Constructs a native instruction-style prompt string and payload specifically for Meta Llama models, including system and user messages."
+      },
+      {
+        "line": 72,
+        "chunkCode": "      // Generic schema (e.g., Titan, Llama)\n      payload = {\n        messages: messages.map(m => ({ role: m.role, content: m.content })),\n        max_tokens: maxTokens,\n        temperature: temperature\n      };\n    }\n",
+        "summary": "Creates a generic payload structure for other models by mapping chat messages and including standard parameters."
+      },
+      {
+        "line": 80,
+        "chunkCode": "    log('LLM chat messages', messages);\n    log('LLM payload preview', JSON.stringify(payload).slice(0, 800));\n\n    const cmd = new InvokeModelCommand({\n      modelId,\n      contentType: 'application/json',\n      accept: 'application/json',\n      body: JSON.stringify(payload)\n    });\n\n    log('Bedrock invoke', { modelId, maxTokens, temperature });\n    let res;\n    try {\n      res = await this.client.send(cmd);\n    } catch (error: any) {\n      // Surface the detailed Bedrock error message to the output channel\n      log('Bedrock invoke error', {\n        name: error?.name,\n        message: error?.message,\n        details: error,\n      });\n      throw error;\n    }\n    log('Received Bedrock response headers', res.$metadata);\n    if (!res.body) {\n      throw new Error('Empty response from Bedrock');\n    }\n\n    // Bedrock returns a stream; convert to string (Node env)",
+        "summary": "Logs the request details, creates an `InvokeModelCommand` for AWS Bedrock, sends it to the API, and handles potential errors or empty responses."
+      },
+      {
+        "line": 109,
+        "chunkCode": "    const text = await streamToString(res.body as any);\n    const parsed = JSON.parse(text);\n",
+        "summary": "Converts the streaming Bedrock response body to a string and parses it as JSON."
+      },
+      {
+        "line": 112,
+        "chunkCode": "    log('LLM parsed response snippet', typeof parsed === 'string' ? parsed.slice(0,100) : parsed);\n\n    // Anthropic / OpenAI-compatible schema\n    if (Array.isArray(parsed?.choices) && parsed.choices.length) {\n      const choice = parsed.choices[0];\n      return (\n        choice.message?.content || // chat\n        choice.text ||\n        ''\n      );\n    }\n\n    // Titan Text models\n    if (Array.isArray(parsed?.results) && parsed.results.length) {\n      return parsed.results[0].outputText || parsed.results[0].text || '';\n    }\n\n    // Meta Llama 3 native response\n    if (typeof parsed.generation === 'string') {\n      return parsed.generation;\n    }\n\n    // Cohere / Llama2 etc.\n    if (typeof parsed.generated_text === 'string') {\n      return parsed.generated_text;\n    }\n\n    // Generic {content: string}\n    if (typeof parsed.content === 'string') {\n      return parsed.content;\n    }\n\n    // Bedrock message-style schema (Claude streaming or non-chat)\n    if (parsed?.type === 'message' && Array.isArray(parsed.content)) {\n      const textPieces = parsed.content\n        .filter((c: any) => c?.type === 'text' && typeof c.text === 'string')\n        .map((c: any) => c.text);\n      if (textPieces.length) {\n        return textPieces.join('');\n      }\n    }\n\n    // As a last resort, stringify the whole object\n    return typeof text === 'string' ? text : JSON.stringify(parsed);\n  }\n}\n",
+        "summary": "Inspects the parsed JSON response for various common LLM output formats to extract the generated text, with a fallback to stringifying the entire response."
+      },
+      {
+        "line": 159,
+        "chunkCode": "/**\n * Google Gemini LLM Service Implementation\n */\nclass GoogleGeminiService implements LLMService {\n  name = 'google-gemini';\n  private apiKey: string;\n  private genAI: any; // Lazy-initialised GoogleGenAI instance (SDK lacks TS types)\n\n  constructor() {\n    this.apiKey = vscode.workspace.getConfiguration('codetorch').get<string>('googleApiKey') ||\n      process.env.GEMINI_API_KEY ||\n      process.env.GOOGLE_API_KEY ||\n      process.env.GOOGLE_AI_API_KEY || '';\n\n    if (!this.apiKey) {\n      log('Google Gemini API key not configured. Set `codetorch.googleApiKey` or env var GEMINI_API_KEY.');\n    }\n\n    // Dynamically require the SDK only when the service is first constructed\n    try {\n      // eslint-disable-next-line @typescript-eslint/no-var-requires\n      const { GoogleGenAI } = require('@google/genai');\n      this.genAI = new GoogleGenAI({ apiKey: this.apiKey });\n    } catch (err) {\n      log('Failed to load @google/genai package', err as any);\n      throw new Error('Missing dependency @google/genai – please run `npm install @google/genai` inside the extension workspace.');\n    }\n  }\n\n",
+        "summary": "The constructor for `GoogleGeminiService` retrieves the API key from various sources and dynamically loads and initializes the Google GenAI SDK, providing error handling for missing dependencies."
+      }
+    ]
+  },
+  {
+    "liveCode": "  async invoke(messages: ChatMessage[], options?: LLMOptions): Promise<string> {\n    log('Gemini invoke');\n    if (!this.apiKey) {\n      throw new Error('Google Gemini API key not configured. Set `codetorch.googleApiKey` in settings or GEMINI_API_KEY env var.');\n    }\n\n    const cfg = vscode.workspace.getConfiguration('codetorch');\n    const model = options?.model || cfg.get<string>('geminiModel') || 'gemini-2.5-flash';\n    const requestedMax = options?.maxTokens ?? 4096;\n    const temperature = options?.temperature ?? cfg.get<number>('temperature') ?? 0.3;\n\n    // Build chat history and extract system instruction (if any)\n    let systemPrompt: string | undefined;\n    const historyParts = [] as any[];\n    for (const msg of messages.slice(0, -1)) {\n      if (msg.role === 'system') {\n        systemPrompt = systemPrompt ? `${systemPrompt}\\n${msg.content}` : msg.content;\n      } else {\n        historyParts.push({\n          role: msg.role === 'assistant' ? 'model' : 'user',\n          parts: [{ text: msg.content }]\n        });\n      }\n    }\n\n    const lastMsg = messages[messages.length - 1];\n    if (!lastMsg || lastMsg.role !== 'user') {\n      throw new Error('Gemini invocation expects the last message to be from the user.');\n    }\n\n    // Create a transient chat session for each invoke\n    const chatOptions: any = {\n      model,\n      history: historyParts,\n      generationConfig: {\n        temperature,\n        maxOutputTokens: requestedMax\n      }\n    };\n    if (systemPrompt) {\n      chatOptions.systemInstruction = systemPrompt;\n    }\n\n    const chat = this.genAI.chats.create(chatOptions);\n\n    try {\n      const response = await chat.sendMessage({ message: lastMsg.content });\n      const text = response?.text ?? '';\n      log('Gemini response', text.slice(0, 400));\n      return text;\n    } catch (error: any) {\n      log('Gemini invoke error', { name: error?.name, message: error?.message, details: error });\n      throw error;\n    }\n  }\n}\n\n/**\n * LLM Service Manager for handling multiple services\n */\nclass LLMServiceManager {\n  private services = new Map<string, LLMService>();\n  private defaultService: string = 'aws-bedrock';\n\n  constructor() {\n    // Register default AWS Bedrock service\n    this.registerService(new AWSBedrockService());\n    this.registerService(new GoogleGeminiService());\n  }\n\n",
+    "lastSavedCode": "  async invoke(messages: ChatMessage[], options?: LLMOptions): Promise<string> {\n    log('Gemini invoke');\n    if (!this.apiKey) {\n      throw new Error('Google Gemini API key not configured. Set `codetorch.googleApiKey` in settings or GEMINI_API_KEY env var.');\n    }\n\n    const cfg = vscode.workspace.getConfiguration('codetorch');\n    const model = options?.model || cfg.get<string>('geminiModel') || 'gemini-2.5-flash';\n    const requestedMax = options?.maxTokens ?? 4096;\n    const temperature = options?.temperature ?? cfg.get<number>('temperature') ?? 0.3;\n\n    // Build chat history and extract system instruction (if any)\n    let systemPrompt: string | undefined;\n    const historyParts = [] as any[];\n    for (const msg of messages.slice(0, -1)) {\n      if (msg.role === 'system') {\n        systemPrompt = systemPrompt ? `${systemPrompt}\\n${msg.content}` : msg.content;\n      } else {\n        historyParts.push({\n          role: msg.role === 'assistant' ? 'model' : 'user',\n          parts: [{ text: msg.content }]\n        });\n      }\n    }\n\n    const lastMsg = messages[messages.length - 1];\n    if (!lastMsg || lastMsg.role !== 'user') {\n      throw new Error('Gemini invocation expects the last message to be from the user.');\n    }\n\n    // Create a transient chat session for each invoke\n    const chatOptions: any = {\n      model,\n      history: historyParts,\n      generationConfig: {\n        temperature,\n        maxOutputTokens: requestedMax\n      }\n    };\n    if (systemPrompt) {\n      chatOptions.systemInstruction = systemPrompt;\n    }\n\n    const chat = this.genAI.chats.create(chatOptions);\n\n    try {\n      const response = await chat.sendMessage({ message: lastMsg.content });\n      const text = response?.text ?? '';\n      log('Gemini response', text.slice(0, 400));\n      return text;\n    } catch (error: any) {\n      log('Gemini invoke error', { name: error?.name, message: error?.message, details: error });\n      throw error;\n    }\n  }\n}\n\n/**\n * LLM Service Manager for handling multiple services\n */\nclass LLMServiceManager {\n  private services = new Map<string, LLMService>();\n  private defaultService: string = 'aws-bedrock';\n\n  constructor() {\n    // Register default AWS Bedrock service\n    this.registerService(new AWSBedrockService());\n    this.registerService(new GoogleGeminiService());\n  }\n\n",
+    "startLine": 364,
+    "units": [
+      {
+        "line": 1,
+        "chunkCode": "  async invoke(messages: ChatMessage[], options?: LLMOptions): Promise<string> {\n    log('Gemini invoke');\n    if (!this.apiKey) {\n      throw new Error('Google Gemini API key not configured. Set `codetorch.googleApiKey` in settings or GEMINI_API_KEY env var.');\n    }\n\n    const cfg = vscode.workspace.getConfiguration('codetorch');\n    const model = options?.model || cfg.get<string>('geminiModel') || 'gemini-2.5-flash';\n    const requestedMax = options?.maxTokens ?? 4096;\n    const temperature = options?.temperature ?? cfg.get<number>('temperature') ?? 0.3;\n",
+        "summary": "This section defines the asynchronous `invoke` method, validates the API key, and loads configuration settings for the LLM call."
+      },
+      {
+        "line": 12,
+        "chunkCode": "    // Build chat history and extract system instruction (if any)\n    let systemPrompt: string | undefined;\n    const historyParts = [] as any[];\n    for (const msg of messages.slice(0, -1)) {\n      if (msg.role === 'system') {\n        systemPrompt = systemPrompt ? `${systemPrompt}\\n${msg.content}` : msg.content;\n      } else {\n        historyParts.push({\n          role: msg.role === 'assistant' ? 'model' : 'user',\n          parts: [{ text: msg.content }]\n        });\n      }\n    }\n\n    const lastMsg = messages[messages.length - 1];\n    if (!lastMsg || lastMsg.role !== 'user') {\n      throw new Error('Gemini invocation expects the last message to be from the user.');\n    }\n",
+        "summary": "This section processes the incoming chat messages, extracts any system instructions, formats the history for the Gemini API, and validates the last message is from a user."
+      },
+      {
+        "line": 31,
+        "chunkCode": "    // Create a transient chat session for each invoke\n    const chatOptions: any = {\n      model,\n      history: historyParts,\n      generationConfig: {\n        temperature,\n        maxOutputTokens: requestedMax\n      }\n    };\n    if (systemPrompt) {\n      chatOptions.systemInstruction = systemPrompt;\n    }\n\n    const chat = this.genAI.chats.create(chatOptions);\n\n    try {\n      const response = await chat.sendMessage({ message: lastMsg.content });\n      const text = response?.text ?? '';\n      log('Gemini response', text.slice(0, 400));\n      return text;\n    } catch (error: any) {\n      log('Gemini invoke error', { name: error?.name, message: error?.message, details: error });\n      throw error;\n    }\n  }\n}\n",
+        "summary": "This section constructs the specific chat options for the Gemini API, sends the user's message to the service, and handles the successful response or any errors."
+      },
+      {
+        "line": 58,
+        "chunkCode": "/**\n * LLM Service Manager for handling multiple services\n */\nclass LLMServiceManager {\n  private services = new Map<string, LLMService>();\n  private defaultService: string = 'aws-bedrock';\n\n  constructor() {\n    // Register default AWS Bedrock service\n    this.registerService(new AWSBedrockService());\n    this.registerService(new GoogleGeminiService());\n  }\n\n",
+        "summary": "This section defines the `LLMServiceManager` class and its constructor, which is responsible for registering and managing different LLM service instances."
+      }
+    ]
+  },
+  {
+    "liveCode": "  registerService(service: LLMService): void {\n    this.services.set(service.name, service);\n    log(`Registered LLM service: ${service.name}`);\n  }\n\n",
+    "lastSavedCode": "  registerService(service: LLMService): void {\n    this.services.set(service.name, service);\n    log(`Registered LLM service: ${service.name}`);\n  }\n\n",
+    "startLine": 434,
+    "units": [
+      {
+        "line": 1,
+        "chunkCode": "  registerService(service: LLMService): void {\n    this.services.set(service.name, service);",
+        "summary": "The `registerService` method stores the provided LLM service object within the class's internal collection, using its name as the key."
+      },
+      {
+        "line": 3,
+        "chunkCode": "    log(`Registered LLM service: ${service.name}`);\n  }\n\n",
+        "summary": "A log message is then generated to confirm the successful registration of the service, including its name."
+      }
+    ]
+  },
+  {
+    "liveCode": "  getService(name?: string): LLMService {\n    const serviceName = name || this.defaultService;\n    const service = this.services.get(serviceName);\n    if (!service) {\n      throw new Error(`LLM service '${serviceName}' not found. Available services: ${Array.from(this.services.keys()).join(', ')}`);\n    }\n    return service;\n  }\n\n",
+    "lastSavedCode": "  getService(name?: string): LLMService {\n    const serviceName = name || this.defaultService;\n    const service = this.services.get(serviceName);\n    if (!service) {\n      throw new Error(`LLM service '${serviceName}' not found. Available services: ${Array.from(this.services.keys()).join(', ')}`);\n    }\n    return service;\n  }\n\n",
+    "startLine": 439,
+    "units": [
+      {
+        "line": 2,
+        "chunkCode": "    const serviceName = name || this.defaultService;",
+        "summary": "Determines the name of the LLM service to be retrieved, using a default if none is specified."
+      },
+      {
+        "line": 3,
+        "chunkCode": "    const service = this.services.get(serviceName);",
+        "summary": "Attempts to retrieve the corresponding LLM service instance from the stored collection."
+      },
+      {
+        "line": 4,
+        "chunkCode": "    if (!service) {\n      throw new Error(`LLM service '${serviceName}' not found. Available services: ${Array.from(this.services.keys()).join(', ')}`);\n    }",
+        "summary": "Throws an error if the requested LLM service cannot be found, providing a list of available services."
+      },
+      {
+        "line": 7,
+        "chunkCode": "    return service;\n  }\n\n",
+        "summary": "Returns the successfully retrieved LLM service instance."
+      }
+    ]
+  },
+  {
+    "liveCode": "  getAvailableServices(): string[] {\n    return Array.from(this.services.keys());\n  }\n\n",
+    "lastSavedCode": "  getAvailableServices(): string[] {\n    return Array.from(this.services.keys());\n  }\n\n",
+    "startLine": 448,
+    "units": [
+      {
+        "line": 1,
+        "chunkCode": "  getAvailableServices(): string[] {\n    return Array.from(this.services.keys());\n  }\n\n",
+        "summary": "This method returns an array containing the names of all available services."
+      }
+    ]
+  },
+  {
+    "liveCode": "  setDefaultService(name: string): void {\n    if (!this.services.has(name)) {\n      throw new Error(`Cannot set default service to '${name}' - service not registered`);\n    }\n    this.defaultService = name;\n    log(`Default LLM service set to: ${name}`);\n  }\n}\n\n// Global service manager instance\nconst serviceManager = new LLMServiceManager();\n// Register Google Gemini service (optional unless explicitly selected)\ntry {\n  serviceManager.registerService(new GoogleGeminiService());\n} catch (err) {\n  log('Failed to register Google Gemini service', err as any);\n}\n\n/**\n * Determine which service to use based on model name\n */\n",
+    "lastSavedCode": "  setDefaultService(name: string): void {\n    if (!this.services.has(name)) {\n      throw new Error(`Cannot set default service to '${name}' - service not registered`);\n    }\n    this.defaultService = name;\n    log(`Default LLM service set to: ${name}`);\n  }\n}\n\n// Global service manager instance\nconst serviceManager = new LLMServiceManager();\n// Register Google Gemini service (optional unless explicitly selected)\ntry {\n  serviceManager.registerService(new GoogleGeminiService());\n} catch (err) {\n  log('Failed to register Google Gemini service', err as any);\n}\n\n/**\n * Determine which service to use based on model name\n */\n",
+    "startLine": 452,
+    "units": [
+      {
+        "line": 1,
+        "chunkCode": "  setDefaultService(name: string): void {\n    if (!this.services.has(name)) {\n      throw new Error(`Cannot set default service to '${name}' - service not registered`);\n    }\n    this.defaultService = name;\n    log(`Default LLM service set to: ${name}`);\n  }\n}\n",
+        "summary": "This section defines a method to set a registered service as the default, throwing an error if the service is not found."
+      },
+      {
+        "line": 10,
+        "chunkCode": "// Global service manager instance\nconst serviceManager = new LLMServiceManager();",
+        "summary": "This section initializes a global instance of the `LLMServiceManager`."
+      },
+      {
+        "line": 12,
+        "chunkCode": "// Register Google Gemini service (optional unless explicitly selected)\ntry {\n  serviceManager.registerService(new GoogleGeminiService());\n} catch (err) {\n  log('Failed to register Google Gemini service', err as any);\n}\n",
+        "summary": "This section attempts to register the `GoogleGeminiService` and logs any failure."
+      },
+      {
+        "line": 19,
+        "chunkCode": "/**\n * Determine which service to use based on model name\n */\n",
+        "summary": "This section provides a comment describing the upcoming logic for determining which service to use based on a model name."
+      }
+    ]
+  },
+  {
+    "liveCode": "function getServiceForModel(modelId: string): string {\n  // Check if it's a Gemini model\n  if (modelId.startsWith('gemini-') || modelId.includes('gemini')) {\n    return 'google-gemini';\n  }\n  // Default to AWS Bedrock for all other models\n  return 'aws-bedrock';\n}\n\n/**\n * Invoke an LLM with automatic service selection and retry logic\n */\n",
+    "lastSavedCode": "function getServiceForModel(modelId: string): string {\n  // Check if it's a Gemini model\n  if (modelId.startsWith('gemini-') || modelId.includes('gemini')) {\n    return 'google-gemini';\n  }\n  // Default to AWS Bedrock for all other models\n  return 'aws-bedrock';\n}\n\n/**\n * Invoke an LLM with automatic service selection and retry logic\n */\n",
+    "startLine": 473,
+    "units": [
+      {
+        "line": 2,
+        "chunkCode": "  // Check if it's a Gemini model\n  if (modelId.startsWith('gemini-') || modelId.includes('gemini')) {\n    return 'google-gemini';\n  }",
+        "summary": "The function first checks if the provided `modelId` indicates a Gemini model."
+      },
+      {
+        "line": 6,
+        "chunkCode": "  // Default to AWS Bedrock for all other models\n  return 'aws-bedrock';\n}\n\n/**\n * Invoke an LLM with automatic service selection and retry logic\n */\n",
+        "summary": "If the model is not identified as Gemini, it defaults to returning 'aws-bedrock'."
+      }
+    ]
+  },
+  {
+    "liveCode": "export async function invokeLLM(messages: ChatMessage[], options?: LLMOptions): Promise<string> {\n  const cfg = vscode.workspace.getConfiguration('codetorch');\n  \n  // Get retry configuration from settings or use defaults\n  const retryConfig: RetryConfig = {\n    maxRetries: options?.retries ?? cfg.get<number>('maxRetries') ?? DEFAULT_RETRY_CONFIG.maxRetries,\n    baseDelay: options?.baseDelay ?? cfg.get<number>('retryBaseDelay') ?? DEFAULT_RETRY_CONFIG.baseDelay,\n    maxDelay: cfg.get<number>('retryMaxDelay') ?? DEFAULT_RETRY_CONFIG.maxDelay,\n    backoffMultiplier: cfg.get<number>('retryBackoffMultiplier') ?? DEFAULT_RETRY_CONFIG.backoffMultiplier\n  };\n\n  // Determine which service to use based on model name\n  log('Invoking LLM', cfg.get<string>('model'));\n  const modelId = options?.model || cfg.get<string>('model') || DEFAULT_MODEL;\n  log('Getting servic name for LLM', modelId);\n  const serviceName = getServiceForModel(modelId);\n  log('Getting service for LLM', serviceName);\n  const service = serviceManager.getService(serviceName);\n  log('Using LLM service', serviceName, modelId);\n\n  return withRetry(async () => {\n    return await service.invoke(messages, options);\n  }, retryConfig);\n}\n\n/**\n * Register a new LLM service\n */\n",
+    "lastSavedCode": "export async function invokeLLM(messages: ChatMessage[], options?: LLMOptions): Promise<string> {\n  const cfg = vscode.workspace.getConfiguration('codetorch');\n  \n  // Get retry configuration from settings or use defaults\n  const retryConfig: RetryConfig = {\n    maxRetries: options?.retries ?? cfg.get<number>('maxRetries') ?? DEFAULT_RETRY_CONFIG.maxRetries,\n    baseDelay: options?.baseDelay ?? cfg.get<number>('retryBaseDelay') ?? DEFAULT_RETRY_CONFIG.baseDelay,\n    maxDelay: cfg.get<number>('retryMaxDelay') ?? DEFAULT_RETRY_CONFIG.maxDelay,\n    backoffMultiplier: cfg.get<number>('retryBackoffMultiplier') ?? DEFAULT_RETRY_CONFIG.backoffMultiplier\n  };\n\n  // Determine which service to use based on model name\n  log('Invoking LLM', cfg.get<string>('model'));\n  const modelId = options?.model || cfg.get<string>('model') || DEFAULT_MODEL;\n  log('Getting servic name for LLM', modelId);\n  const serviceName = getServiceForModel(modelId);\n  log('Getting service for LLM', serviceName);\n  const service = serviceManager.getService(serviceName);\n  log('Using LLM service', serviceName, modelId);\n\n  return withRetry(async () => {\n    return await service.invoke(messages, options);\n  }, retryConfig);\n}\n\n/**\n * Register a new LLM service\n */\n",
+    "startLine": 485,
+    "units": [
+      {
+        "line": 2,
+        "chunkCode": "  const cfg = vscode.workspace.getConfiguration('codetorch');\n  ",
+        "summary": "The function begins by retrieving the workspace configuration for 'codetorch'."
+      },
+      {
+        "line": 4,
+        "chunkCode": "  // Get retry configuration from settings or use defaults\n  const retryConfig: RetryConfig = {\n    maxRetries: options?.retries ?? cfg.get<number>('maxRetries') ?? DEFAULT_RETRY_CONFIG.maxRetries,\n    baseDelay: options?.baseDelay ?? cfg.get<number>('retryBaseDelay') ?? DEFAULT_RETRY_CONFIG.baseDelay,\n    maxDelay: cfg.get<number>('retryMaxDelay') ?? DEFAULT_RETRY_CONFIG.maxDelay,\n    backoffMultiplier: cfg.get<number>('retryBackoffMultiplier') ?? DEFAULT_RETRY_CONFIG.backoffMultiplier\n  };\n",
+        "summary": "It then calculates and sets up the retry configuration, prioritizing options passed to the function, then workspace settings, and finally default values."
+      },
+      {
+        "line": 12,
+        "chunkCode": "  // Determine which service to use based on model name\n  log('Invoking LLM', cfg.get<string>('model'));\n  const modelId = options?.model || cfg.get<string>('model') || DEFAULT_MODEL;\n  log('Getting servic name for LLM', modelId);\n  const serviceName = getServiceForModel(modelId);\n  log('Getting service for LLM', serviceName);\n  const service = serviceManager.getService(serviceName);\n  log('Using LLM service', serviceName, modelId);\n",
+        "summary": "The code determines the specific LLM model and corresponding service to use, logging the selection process."
+      },
+      {
+        "line": 21,
+        "chunkCode": "  return withRetry(async () => {\n    return await service.invoke(messages, options);\n  }, retryConfig);\n}\n\n/**\n * Register a new LLM service\n */\n",
+        "summary": "Finally, the function invokes the chosen LLM service with the provided messages and options, wrapping the call in a retry mechanism."
+      }
+    ]
+  },
+  {
+    "liveCode": "export function registerLLMService(service: LLMService): void {\n  serviceManager.registerService(service);\n}\n\n/**\n * Get available LLM services\n */\n",
+    "lastSavedCode": "export function registerLLMService(service: LLMService): void {\n  serviceManager.registerService(service);\n}\n\n/**\n * Get available LLM services\n */\n",
+    "startLine": 513,
+    "units": [
+      {
+        "line": 1,
+        "chunkCode": "export function registerLLMService(service: LLMService): void {\n  serviceManager.registerService(service);\n}\n",
+        "summary": "Defines a function that registers a given LLM service with a global service manager."
+      },
+      {
+        "line": 5,
+        "chunkCode": "/**\n * Get available LLM services\n */\n",
+        "summary": "A documentation comment describes the purpose of a subsequent (but not shown) function to retrieve available LLM services."
+      }
+    ]
+  },
+  {
+    "liveCode": "export function getAvailableLLMServices(): string[] {\n  return serviceManager.getAvailableServices();\n}\n\n/**\n * Set the default LLM service\n */\n",
+    "lastSavedCode": "export function getAvailableLLMServices(): string[] {\n  return serviceManager.getAvailableServices();\n}\n\n/**\n * Set the default LLM service\n */\n",
+    "startLine": 520,
+    "units": [
+      {
+        "line": 1,
+        "chunkCode": "export function getAvailableLLMServices(): string[] {\n  return serviceManager.getAvailableServices();\n}\n",
+        "summary": "This function retrieves and returns a list of all currently available LLM services."
+      },
+      {
+        "line": 5,
+        "chunkCode": "/**\n * Set the default LLM service\n */\n",
+        "summary": "This section is a documentation comment describing the purpose of a function to set the default LLM service."
+      }
+    ]
+  },
+  {
+    "liveCode": "export function setDefaultLLMService(name: string): void {\n  serviceManager.setDefaultService(name);\n}\n\n/**\n * Convenience wrapper to summarise an entire function. Returns a natural-language summary.\n */\n",
+    "lastSavedCode": "export function setDefaultLLMService(name: string): void {\n  serviceManager.setDefaultService(name);\n}\n\n/**\n * Convenience wrapper to summarise an entire function. Returns a natural-language summary.\n */\n",
+    "startLine": 527,
+    "units": [
+      {
+        "line": 1,
+        "chunkCode": "export function setDefaultLLMService(name: string): void {\n  serviceManager.setDefaultService(name);\n}\n\n/**\n * Convenience wrapper to summarise an entire function. Returns a natural-language summary.\n */\n",
+        "summary": "This function sets the default LLM service by invoking a method on the `serviceManager`."
+      }
+    ]
+  },
+  {
+    "liveCode": "export async function summarizeFunction(code: string, language: string): Promise<string> {\n  const prefix = vscode.workspace.getConfiguration('codetorch').get<string>('commentPrefix') || '// >';\n  const systemPrompt = 'You are a senior software engineer who explains code clearly. Respond ONLY with JSON that conforms to this schema: { \"summary\": \"string\" }';\n  const userPrompt = `Provide a concise summary (1-3 sentences) of the following ${language} function. Do not add code fences.\\n\\n${code}`;\n  const response = await invokeLLM([\n    { role: 'system', content: systemPrompt },\n    { role: 'user', content: userPrompt }\n  ]);\n\n  // Ensure summary lines start with comment prefix for easy insertion if desired\n  return response.split('\\n').map(line => `${prefix} ${line}`.trim()).join('\\n');\n}\n\nexport interface ChunkSummary {\n  line: number;          // 1-based, relative to start of function\n  chunkCode: string;     // The exact code lines this summary describes\n  summary: string;       // Natural-language explanation\n}\n\nexport interface FunctionSummary {\n  liveCode: string;        // Live (current) source of the function\n  lastSavedCode: string;       // Source when summaries were last generated\n  startLine: number;           // Absolute 0-based start line in the document (for live shifts)\n  units: ChunkSummary[];       // Ordered list of chunk summaries (first element can summarise entire fn)\n}\n\n// Backwards-compat alias until callers migrate fully\nexport type SemanticUnitComment = ChunkSummary;\n\n/**\n * Generate detailed semantic unit summaries for a single function.\n *\n * The function is sent to the model with **explicit line numbers** so that the\n * model can reference exact insertion points. We then parse the JSON array the\n * model returns. If the model produces a simpler \"N - summary\" style list we\n * fall back to regex parsing.\n *\n * @param code      Raw source of the function (no surrounding code)\n * @param language  Language identifier (e.g. \"typescript\", \"python\") for better prompting\n * @returns Array of `{ line, summary }` objects – ready for the CodeLens provider.\n */\n",
+    "lastSavedCode": "export async function summarizeFunction(code: string, language: string): Promise<string> {\n  const prefix = vscode.workspace.getConfiguration('codetorch').get<string>('commentPrefix') || '// >';\n  const systemPrompt = 'You are a senior software engineer who explains code clearly. Respond ONLY with JSON that conforms to this schema: { \"summary\": \"string\" }';\n  const userPrompt = `Provide a concise summary (1-3 sentences) of the following ${language} function. Do not add code fences.\\n\\n${code}`;\n  const response = await invokeLLM([\n    { role: 'system', content: systemPrompt },\n    { role: 'user', content: userPrompt }\n  ]);\n\n  // Ensure summary lines start with comment prefix for easy insertion if desired\n  return response.split('\\n').map(line => `${prefix} ${line}`.trim()).join('\\n');\n}\n\nexport interface ChunkSummary {\n  line: number;          // 1-based, relative to start of function\n  chunkCode: string;     // The exact code lines this summary describes\n  summary: string;       // Natural-language explanation\n}\n\nexport interface FunctionSummary {\n  liveCode: string;        // Live (current) source of the function\n  lastSavedCode: string;       // Source when summaries were last generated\n  startLine: number;           // Absolute 0-based start line in the document (for live shifts)\n  units: ChunkSummary[];       // Ordered list of chunk summaries (first element can summarise entire fn)\n}\n\n// Backwards-compat alias until callers migrate fully\nexport type SemanticUnitComment = ChunkSummary;\n\n/**\n * Generate detailed semantic unit summaries for a single function.\n *\n * The function is sent to the model with **explicit line numbers** so that the\n * model can reference exact insertion points. We then parse the JSON array the\n * model returns. If the model produces a simpler \"N - summary\" style list we\n * fall back to regex parsing.\n *\n * @param code      Raw source of the function (no surrounding code)\n * @param language  Language identifier (e.g. \"typescript\", \"python\") for better prompting\n * @returns Array of `{ line, summary }` objects – ready for the CodeLens provider.\n */\n",
+    "startLine": 534,
+    "units": [
+      {
+        "line": 1,
+        "chunkCode": "export async function summarizeFunction(code: string, language: string): Promise<string> {\n  const prefix = vscode.workspace.getConfiguration('codetorch').get<string>('commentPrefix') || '// >';\n  const systemPrompt = 'You are a senior software engineer who explains code clearly. Respond ONLY with JSON that conforms to this schema: { \"summary\": \"string\" }';\n  const userPrompt = `Provide a concise summary (1-3 sentences) of the following ${language} function. Do not add code fences.\\n\\n${code}`;\n  const response = await invokeLLM([\n    { role: 'system', content: systemPrompt },\n    { role: 'user', content: userPrompt }\n  ]);\n\n  // Ensure summary lines start with comment prefix for easy insertion if desired\n  return response.split('\\n').map(line => `${prefix} ${line}`.trim()).join('\\n');\n}\n",
+        "summary": "This asynchronous function takes code and language, prepares prompts for an LLM to generate a summary, invokes the LLM, and formats the LLM's response by adding a configurable comment prefix to each line."
+      },
+      {
+        "line": 14,
+        "chunkCode": "export interface ChunkSummary {\n  line: number;          // 1-based, relative to start of function\n  chunkCode: string;     // The exact code lines this summary describes\n  summary: string;       // Natural-language explanation\n}\n",
+        "summary": "This interface defines the structure for a summary of a small code segment, including its line number, the exact code, and a natural-language explanation."
+      },
+      {
+        "line": 20,
+        "chunkCode": "export interface FunctionSummary {\n  liveCode: string;        // Live (current) source of the function\n  lastSavedCode: string;       // Source when summaries were last generated\n  startLine: number;           // Absolute 0-based start line in the document (for live shifts)\n  units: ChunkSummary[];       // Ordered list of chunk summaries (first element can summarise entire fn)\n}\n\n// Backwards-compat alias until callers migrate fully",
+        "summary": "This interface defines the comprehensive summary structure for an entire function, encompassing its current and last-saved source code, its starting line, and an ordered list of `ChunkSummary` units."
+      },
+      {
+        "line": 28,
+        "chunkCode": "export type SemanticUnitComment = ChunkSummary;\n\n/**",
+        "summary": "This line provides a backward-compatible alias for the `ChunkSummary` interface."
+      },
+      {
+        "line": 31,
+        "chunkCode": " * Generate detailed semantic unit summaries for a single function.\n *\n * The function is sent to the model with **explicit line numbers** so that the\n * model can reference exact insertion points. We then parse the JSON array the\n * model returns. If the model produces a simpler \"N - summary\" style list we\n * fall back to regex parsing.\n *\n * @param code      Raw source of the function (no surrounding code)\n * @param language  Language identifier (e.g. \"typescript\", \"python\") for better prompting\n * @returns Array of `{ line, summary }` objects – ready for the CodeLens provider.\n */\n",
+        "summary": "This multi-line comment describes the purpose and parameters of a conceptual function designed to generate detailed semantic unit summaries for a single function using an LLM."
+      }
+    ]
+  },
+  {
+    "liveCode": "export async function summarizeFunctionSemanticUnits(code: string, language: string): Promise<SemanticUnitComment[]> {\n  const systemPrompt = fs.readFileSync(path.join(__dirname, 'prompts', 'comments_system_prompt.txt'), 'utf8');\n  const promptTemplate = fs.readFileSync(path.join(__dirname, 'prompts', 'comments_prompt_template.txt'), 'utf8');\n\n  //'You are a senior software engineer who explains code clearly. Respond ONLY with JSON that conforms to this schema: [{ \"line\": 1, \"summary\": \"string\" }]';\n  // Add line numbers to snippet so the model can reference them deterministically\n  const lines = code.split(/\\r?\\n/);\n  const numberedSnippet = lines.map((l, idx) => `${idx + 1}: ${l}`).join(\"\\n\");\n  const promptCode = promptTemplate.replace('{{{code_with_line_numbers}}}', numberedSnippet);\n  const example1 = fs.readFileSync(path.join(__dirname, 'prompts', 'comments_example_1.txt'), 'utf8');\n  const example2 = fs.readFileSync(path.join(__dirname, 'prompts', 'comments_example_2.txt'), 'utf8');\n\n  const response = await invokeLLM([\n    { role: 'system', content: systemPrompt },\n    { role: 'user', content: example1.substring(example1.indexOf('USER:') + 'USER:'.length).trim() },\n    { role: 'assistant', content: example1.substring(example1.indexOf('ASSISTANT:') + 'ASSISTANT:'.length).trim() },\n    { role: 'user', content: example2.substring(example2.indexOf('USER:') + 'USER:'.length).trim() },\n    { role: 'assistant', content: example2.substring(example2.indexOf('ASSISTANT:') + 'ASSISTANT:'.length).trim() },\n    { role: 'user', content: `${promptCode}` }\n  ]);\n  \n\n  // Primary: parse \"N | summary\" style lines\n  const lineObjects = response\n    .split(/\\r?\\n/)\n    .map(l => l.trim())\n    .filter(Boolean)\n    .map(l => {\n      const m = l.match(/^(\\d+)\\s*[|:-]\\s*(.+)$/);\n      if (m) {\n        return { line: Number(m[1]), summary: m[2].trim() };\n      }\n      return undefined;\n    })\n    .filter(Boolean) as SemanticUnitComment[];\n\n  if (lineObjects.length) return lineObjects;\n\n  // Fallback: attempt to parse strict JSON array\n  try {\n    const parsed = JSON.parse(response);\n    if (Array.isArray(parsed)) {\n      return parsed\n        .filter((obj: any) => typeof obj?.line === 'number' && typeof obj?.summary === 'string')\n        .map((obj: any) => ({ line: obj.line, summary: obj.summary.trim() })) as SemanticUnitComment[];\n    }\n  } catch {\n    // ignore\n  }\n\n  // If parsing fails, return empty array\n  return [];\n}\n",
+    "lastSavedCode": "export async function summarizeFunctionSemanticUnits(code: string, language: string): Promise<SemanticUnitComment[]> {\n  const systemPrompt = fs.readFileSync(path.join(__dirname, 'prompts', 'comments_system_prompt.txt'), 'utf8');\n  const promptTemplate = fs.readFileSync(path.join(__dirname, 'prompts', 'comments_prompt_template.txt'), 'utf8');\n\n  //'You are a senior software engineer who explains code clearly. Respond ONLY with JSON that conforms to this schema: [{ \"line\": 1, \"summary\": \"string\" }]';\n  // Add line numbers to snippet so the model can reference them deterministically\n  const lines = code.split(/\\r?\\n/);\n  const numberedSnippet = lines.map((l, idx) => `${idx + 1}: ${l}`).join(\"\\n\");\n  const promptCode = promptTemplate.replace('{{{code_with_line_numbers}}}', numberedSnippet);\n  const example1 = fs.readFileSync(path.join(__dirname, 'prompts', 'comments_example_1.txt'), 'utf8');\n  const example2 = fs.readFileSync(path.join(__dirname, 'prompts', 'comments_example_2.txt'), 'utf8');\n\n  const response = await invokeLLM([\n    { role: 'system', content: systemPrompt },\n    { role: 'user', content: example1.substring(example1.indexOf('USER:') + 'USER:'.length).trim() },\n    { role: 'assistant', content: example1.substring(example1.indexOf('ASSISTANT:') + 'ASSISTANT:'.length).trim() },\n    { role: 'user', content: example2.substring(example2.indexOf('USER:') + 'USER:'.length).trim() },\n    { role: 'assistant', content: example2.substring(example2.indexOf('ASSISTANT:') + 'ASSISTANT:'.length).trim() },\n    { role: 'user', content: `${promptCode}` }\n  ]);\n  \n\n  // Primary: parse \"N | summary\" style lines\n  const lineObjects = response\n    .split(/\\r?\\n/)\n    .map(l => l.trim())\n    .filter(Boolean)\n    .map(l => {\n      const m = l.match(/^(\\d+)\\s*[|:-]\\s*(.+)$/);\n      if (m) {\n        return { line: Number(m[1]), summary: m[2].trim() };\n      }\n      return undefined;\n    })\n    .filter(Boolean) as SemanticUnitComment[];\n\n  if (lineObjects.length) return lineObjects;\n\n  // Fallback: attempt to parse strict JSON array\n  try {\n    const parsed = JSON.parse(response);\n    if (Array.isArray(parsed)) {\n      return parsed\n        .filter((obj: any) => typeof obj?.line === 'number' && typeof obj?.summary === 'string')\n        .map((obj: any) => ({ line: obj.line, summary: obj.summary.trim() })) as SemanticUnitComment[];\n    }\n  } catch {\n    // ignore\n  }\n\n  // If parsing fails, return empty array\n  return [];\n}\n",
+    "startLine": 575,
+    "units": [
+      {
+        "line": 2,
+        "chunkCode": "  const systemPrompt = fs.readFileSync(path.join(__dirname, 'prompts', 'comments_system_prompt.txt'), 'utf8');\n  const promptTemplate = fs.readFileSync(path.join(__dirname, 'prompts', 'comments_prompt_template.txt'), 'utf8');\n\n  //'You are a senior software engineer who explains code clearly. Respond ONLY with JSON that conforms to this schema: [{ \"line\": 1, \"summary\": \"string\" }]';\n  // Add line numbers to snippet so the model can reference them deterministically",
+        "summary": "Load system prompt, prompt template, and example files from disk."
+      },
+      {
+        "line": 7,
+        "chunkCode": "  const lines = code.split(/\\r?\\n/);\n  const numberedSnippet = lines.map((l, idx) => `${idx + 1}: ${l}`).join(\"\\n\");\n  const promptCode = promptTemplate.replace('{{{code_with_line_numbers}}}', numberedSnippet);\n  const example1 = fs.readFileSync(path.join(__dirname, 'prompts', 'comments_example_1.txt'), 'utf8');\n  const example2 = fs.readFileSync(path.join(__dirname, 'prompts', 'comments_example_2.txt'), 'utf8');\n",
+        "summary": "Add line numbers to the input code to prepare it for LLM processing."
+      },
+      {
+        "line": 13,
+        "chunkCode": "  const response = await invokeLLM([\n    { role: 'system', content: systemPrompt },\n    { role: 'user', content: example1.substring(example1.indexOf('USER:') + 'USER:'.length).trim() },\n    { role: 'assistant', content: example1.substring(example1.indexOf('ASSISTANT:') + 'ASSISTANT:'.length).trim() },\n    { role: 'user', content: example2.substring(example2.indexOf('USER:') + 'USER:'.length).trim() },\n    { role: 'assistant', content: example2.substring(example2.indexOf('ASSISTANT:') + 'ASSISTANT:'.length).trim() },\n    { role: 'user', content: `${promptCode}` }\n  ]);\n  \n",
+        "summary": "Invoke the LLM using a system prompt, few-shot examples, and the numbered code snippet."
+      },
+      {
+        "line": 23,
+        "chunkCode": "  // Primary: parse \"N | summary\" style lines\n  const lineObjects = response\n    .split(/\\r?\\n/)\n    .map(l => l.trim())\n    .filter(Boolean)\n    .map(l => {\n      const m = l.match(/^(\\d+)\\s*[|:-]\\s*(.+)$/);\n      if (m) {\n        return { line: Number(m[1]), summary: m[2].trim() };\n      }\n      return undefined;\n    })\n    .filter(Boolean) as SemanticUnitComment[];\n\n  if (lineObjects.length) return lineObjects;\n",
+        "summary": "Attempt to parse the LLM's response, prioritizing a \"line | summary\" format."
+      },
+      {
+        "line": 39,
+        "chunkCode": "  // Fallback: attempt to parse strict JSON array\n  try {\n    const parsed = JSON.parse(response);\n    if (Array.isArray(parsed)) {\n      return parsed\n        .filter((obj: any) => typeof obj?.line === 'number' && typeof obj?.summary === 'string')\n        .map((obj: any) => ({ line: obj.line, summary: obj.summary.trim() })) as SemanticUnitComment[];\n    }\n  } catch {\n    // ignore\n  }\n",
+        "summary": "As a fallback, attempt to parse the LLM's response as a strict JSON array of objects."
+      },
+      {
+        "line": 51,
+        "chunkCode": "  // If parsing fails, return empty array\n  return [];\n}\n",
+        "summary": "Return an empty array if no valid semantic unit comments can be parsed from the LLM's response."
+      }
+    ]
+  }
+]

@@ -2,24 +2,46 @@
   "name": "codetorch",
   "displayName": "CodeTorch",
   "publisher": "CodeTorch",
-  "description": "Scaffolds code with natural language and visual explanations",
+  "author": {
+    "name": "Yuvraj Virk",
+    "email": "yuvivirk344@gmail.com",
+    "url": "https://yuvrajvirk.github.io/"
+  },
+  "description": "AI-generated natural language outlines",
   "version": "0.0.1",
   "repository": {
     "type": "git",
     "url": "https://github.com/CodeTorch/codetorch.git"
   },
+  "bugs": {
+    "url": "https://github.com/yuvrajvirk/CodeTorch/issues",
+    "email": "yuvivirk344@gmail.com"
+  },
   "engines": {
-    "vscode": "^1.93.0"
+    "vscode": "^1.51.0"
   },
   "categories": [
     "Other"
   ],
-  "activationEvents": [
-    "onStartupFinished",
-    "onCommand:codetorch.showQuickMenu"
+  "keywords": [
+    "AI",
+    "LLM",
+    "CodeLens",
+    "Documentation",
+    "Outlines",
+    "Annotations",
+    "Summarization",
+    "Code Review",
   ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "galleryBanner": {
+    "color": "#1c1c1c",
+    "theme": "dark"
+  },
   "main": "./out/extension.js",
-  "icon": "assets/codeTorchIcon.png",
+  "icon": "images/codeTorchIcon.png",
   "contributes": {
     "commands": [
       {
@@ -48,18 +70,8 @@
         },
         "codetorch.temperature": {
           "type": "number",
-          "default": 0.3,
+          "default": 0.2,
           "description": "Sampling temperature for the LLM (if supported)."
-        },
-        "codetorch.commentPrefix": {
-          "type": "string",
-          "default": "// >",
-          "description": "Prefix inserted before each generated comment line."
-        },
-        "codetorch.awsRegion": {
-          "type": "string",
-          "default": "us-east-1",
-          "description": "AWS region where Bedrock is available."
         },
         "codetorch.showSummaries": {
           "type": "boolean",

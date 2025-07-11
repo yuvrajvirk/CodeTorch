@@ -1,0 +1,218 @@
+[
+  {
+    "liveCode": "function summariesEnabled(): boolean {\n  return vscode.workspace.getConfiguration('codetorch').get<boolean>('enableSummaries', true);\n}\n\n",
+    "lastSavedCode": "function summariesEnabled(): boolean {\n  return vscode.workspace.getConfiguration('codetorch').get<boolean>('enableSummaries', true);\n}\n\n",
+    "startLine": 6,
+    "units": [
+      {
+        "line": 1,
+        "chunkCode": "function summariesEnabled(): boolean {\n  return vscode.workspace.getConfiguration('codetorch').get<boolean>('enableSummaries', true);\n}\n\n",
+        "summary": "This function retrieves a boolean setting named 'enableSummaries' from the 'codetorch' VS Code workspace configuration, defaulting to true."
+      }
+    ]
+  },
+  {
+    "liveCode": "function summariesVisible(): boolean {\n  return vscode.workspace.getConfiguration('codetorch').get<boolean>('showSummaries', true);\n}\n\ninterface PendingSummaryTask {\n  fn: FunctionInfo;\n  code: string;\n  startLine: number;\n}\n\nexport class FunctionSummaryCodeLensProvider implements vscode.CodeLensProvider {\n  private cache = new Map<string, vscode.CodeLens[]>(); // key: document URI\n  private updateTimeout = new Map<string, NodeJS.Timeout>(); // key: document URI\n\n  private _onDidChangeCodeLenses = new vscode.EventEmitter<void>();\n  readonly onDidChangeCodeLenses = this._onDidChangeCodeLenses.event;\n\n",
+    "lastSavedCode": "function summariesVisible(): boolean {\n  return vscode.workspace.getConfiguration('codetorch').get<boolean>('showSummaries', true);\n}\n\ninterface PendingSummaryTask {\n  fn: FunctionInfo;\n  code: string;\n  startLine: number;\n}\n\nexport class FunctionSummaryCodeLensProvider implements vscode.CodeLensProvider {\n  private cache = new Map<string, vscode.CodeLens[]>(); // key: document URI\n  private updateTimeout = new Map<string, NodeJS.Timeout>(); // key: document URI\n\n  private _onDidChangeCodeLenses = new vscode.EventEmitter<void>();\n  readonly onDidChangeCodeLenses = this._onDidChangeCodeLenses.event;\n\n",
+    "startLine": 10,
+    "units": [
+      {
+        "line": 1,
+        "chunkCode": "function summariesVisible(): boolean {\n  return vscode.workspace.getConfiguration('codetorch').get<boolean>('showSummaries', true);\n}\n",
+        "summary": "Defines a utility function to check if code summaries are enabled in the VS Code settings."
+      },
+      {
+        "line": 5,
+        "chunkCode": "interface PendingSummaryTask {\n  fn: FunctionInfo;\n  code: string;\n  startLine: number;\n}\n",
+        "summary": "Declares an interface `PendingSummaryTask` to define the shape of data for a function awaiting a summary."
+      },
+      {
+        "line": 11,
+        "chunkCode": "export class FunctionSummaryCodeLensProvider implements vscode.CodeLensProvider {\n  private cache = new Map<string, vscode.CodeLens[]>(); // key: document URI\n  private updateTimeout = new Map<string, NodeJS.Timeout>(); // key: document URI\n\n  private _onDidChangeCodeLenses = new vscode.EventEmitter<void>();\n  readonly onDidChangeCodeLenses = this._onDidChangeCodeLenses.event;\n\n",
+        "summary": "Initializes the `FunctionSummaryCodeLensProvider` class, declaring its private properties for caching, timeouts, and an event emitter for CodeLens changes."
+      }
+    ]
+  },
+  {
+    "liveCode": "  async provideCodeLenses(document: vscode.TextDocument, token: vscode.CancellationToken): Promise<vscode.CodeLens[]> {\n    const enabled = summariesEnabled();\n    const visible = summariesVisible();\n\n    if (!enabled) {\n      return [];\n    }\n\n    const uri = document.uri.toString();\n    log('uri', uri);\n    log('document.fileName', document.fileName);\n    if (uri.includes('extension-output') || \n        uri.includes('extension-log') ||\n        uri.includes('.git') ||\n        uri.includes('node_modules') ||\n        uri.includes('.codetorch')) {\n      return [];\n    }\n\n    log('provideCodeLenses start', uri);\n    const cached = this.cache.get(uri);\n    if (cached) {\n      log('Using cached CodeLens', cached.length);\n      return cached;\n    }\n    \n    const functions = await detectFunctions(document);\n    const cachedSummaries = await loadSummary(document) ?? [];\n    const updatedSummaries: FunctionSummary[] = [...cachedSummaries];\n    const matched = new Set<FunctionSummary>();\n    let summariesChanged = false;\n\n    const lenses: vscode.CodeLens[] = [];\n\n    const sorted = [...functions].sort((a, b) => a.startLine - b.startLine);\n\n    const tasksToGenerate: PendingSummaryTask[] = [];\n    for (let i = 0; i < sorted.length; i++) {\n      const fn = sorted[i];\n      const nextStart = (i + 1 < sorted.length) ? sorted[i + 1].startLine : document.lineCount;\n      const code = document.getText(new vscode.Range(fn.startLine, 0, nextStart, 0));\n\n      let fnSummary: FunctionSummary | undefined = cachedSummaries.find(s => s.liveCode === code);\n      \n      if (!fnSummary || (!document.isDirty && fnSummary.lastSavedCode !== code)) {\n        if (document.isDirty) {\n          log('Document dirty; defer regeneration for function', fn.name);\n          continue;\n        }\n\n        tasksToGenerate.push({ fn, code, startLine: fn.startLine });\n\n        if (fnSummary) {\n          matched.add(fnSummary);\n        }\n      } else {\n        if (fnSummary) {\n          if (fnSummary.startLine !== fn.startLine) {\n            fnSummary.startLine = fn.startLine;\n            const idx = updatedSummaries.findIndex(s => s.liveCode === code);\n            if (idx >= 0) updatedSummaries[idx] = fnSummary;\n            summariesChanged = true;\n          }\n          if (fnSummary.liveCode !== code) {\n            fnSummary.liveCode = code;\n            const idx2 = updatedSummaries.findIndex(s => s.liveCode === code);\n            if (idx2 >= 0) updatedSummaries[idx2] = fnSummary;\n          }\n        }\n        matched.add(fnSummary);\n        log(`Using cached summaries for function ${fn.name}`);\n      }\n\n      // TODO: when implement proper function summaries, add this back in\n      // if (visible && fnSummary && fnSummary.units.length) {\n      //   const functionSummaryText = fnSummary.units[0].summary;\n      //   const fnPos = new vscode.Position(fn.startLine, 0);\n      //   lenses.push(new vscode.CodeLens(new vscode.Range(fnPos, fnPos), {\n      //     title: functionSummaryText,\n      //     command: 'codetorch.nop',\n      //     tooltip: 'Function summary'\n      //   }));\n      // }\n      // log('function summary exists for ', fn.name, fnSummary ? 'yes' : 'no');\n\n      if (visible && fnSummary) {\n        for (const unit of fnSummary.units) {\n          const insertionLine = Math.min(fn.startLine + unit.line - 1, nextStart - 1);\n          const pos = new vscode.Position(insertionLine, 0);\n          lenses.push(new vscode.CodeLens(new vscode.Range(pos, pos), {\n            title: unit.summary,\n            command: 'codetorch.nop',\n            tooltip: 'Code summary'\n          }));\n        }\n      }\n    }\n\n    if (tasksToGenerate.length > 0 && !document.isDirty) {\n      this.scheduleSummaryGeneration(document, tasksToGenerate);\n    }\n\n    this.cache.set(document.uri.toString(), lenses);\n\n    if (!document.isDirty) {\n      const finalSummaries = updatedSummaries.filter(s => matched.has(s));\n      if (summariesChanged || finalSummaries.length !== cachedSummaries.length) {\n        await saveSummary(document, finalSummaries);\n      }\n    } else {\n      await saveSummary(document, updatedSummaries);\n    }\n\n    return lenses;\n  }\n\n",
+    "lastSavedCode": "  async provideCodeLenses(document: vscode.TextDocument, token: vscode.CancellationToken): Promise<vscode.CodeLens[]> {\n    const enabled = summariesEnabled();\n    const visible = summariesVisible();\n\n    if (!enabled) {\n      return [];\n    }\n\n    const uri = document.uri.toString();\n    log('uri', uri);\n    log('document.fileName', document.fileName);\n    if (uri.includes('extension-output') || \n        uri.includes('extension-log') ||\n        uri.includes('.git') ||\n        uri.includes('node_modules') ||\n        uri.includes('.codetorch')) {\n      return [];\n    }\n\n    log('provideCodeLenses start', uri);\n    const cached = this.cache.get(uri);\n    if (cached) {\n      log('Using cached CodeLens', cached.length);\n      return cached;\n    }\n    \n    const functions = await detectFunctions(document);\n    const cachedSummaries = await loadSummary(document) ?? [];\n    const updatedSummaries: FunctionSummary[] = [...cachedSummaries];\n    const matched = new Set<FunctionSummary>();\n    let summariesChanged = false;\n\n    const lenses: vscode.CodeLens[] = [];\n\n    const sorted = [...functions].sort((a, b) => a.startLine - b.startLine);\n\n    const tasksToGenerate: PendingSummaryTask[] = [];\n    for (let i = 0; i < sorted.length; i++) {\n      const fn = sorted[i];\n      const nextStart = (i + 1 < sorted.length) ? sorted[i + 1].startLine : document.lineCount;\n      const code = document.getText(new vscode.Range(fn.startLine, 0, nextStart, 0));\n\n      let fnSummary: FunctionSummary | undefined = cachedSummaries.find(s => s.liveCode === code);\n      \n      if (!fnSummary || (!document.isDirty && fnSummary.lastSavedCode !== code)) {\n        if (document.isDirty) {\n          log('Document dirty; defer regeneration for function', fn.name);\n          continue;\n        }\n\n        tasksToGenerate.push({ fn, code, startLine: fn.startLine });\n\n        if (fnSummary) {\n          matched.add(fnSummary);\n        }\n      } else {\n        if (fnSummary) {\n          if (fnSummary.startLine !== fn.startLine) {\n            fnSummary.startLine = fn.startLine;\n            const idx = updatedSummaries.findIndex(s => s.liveCode === code);\n            if (idx >= 0) updatedSummaries[idx] = fnSummary;\n            summariesChanged = true;\n          }\n          if (fnSummary.liveCode !== code) {\n            fnSummary.liveCode = code;\n            const idx2 = updatedSummaries.findIndex(s => s.liveCode === code);\n            if (idx2 >= 0) updatedSummaries[idx2] = fnSummary;\n          }\n        }\n        matched.add(fnSummary);\n        log(`Using cached summaries for function ${fn.name}`);\n      }\n\n      // TODO: when implement proper function summaries, add this back in\n      // if (visible && fnSummary && fnSummary.units.length) {\n      //   const functionSummaryText = fnSummary.units[0].summary;\n      //   const fnPos = new vscode.Position(fn.startLine, 0);\n      //   lenses.push(new vscode.CodeLens(new vscode.Range(fnPos, fnPos), {\n      //     title: functionSummaryText,\n      //     command: 'codetorch.nop',\n      //     tooltip: 'Function summary'\n      //   }));\n      // }\n      // log('function summary exists for ', fn.name, fnSummary ? 'yes' : 'no');\n\n      if (visible && fnSummary) {\n        for (const unit of fnSummary.units) {\n          const insertionLine = Math.min(fn.startLine + unit.line - 1, nextStart - 1);\n          const pos = new vscode.Position(insertionLine, 0);\n          lenses.push(new vscode.CodeLens(new vscode.Range(pos, pos), {\n            title: unit.summary,\n            command: 'codetorch.nop',\n            tooltip: 'Code summary'\n          }));\n        }\n      }\n    }\n\n    if (tasksToGenerate.length > 0 && !document.isDirty) {\n      this.scheduleSummaryGeneration(document, tasksToGenerate);\n    }\n\n    this.cache.set(document.uri.toString(), lenses);\n\n    if (!document.isDirty) {\n      const finalSummaries = updatedSummaries.filter(s => matched.has(s));\n      if (summariesChanged || finalSummaries.length !== cachedSummaries.length) {\n        await saveSummary(document, finalSummaries);\n      }\n    } else {\n      await saveSummary(document, updatedSummaries);\n    }\n\n    return lenses;\n  }\n\n",
+    "startLine": 27,
+    "units": [
+      {
+        "line": 1,
+        "chunkCode": "  async provideCodeLenses(document: vscode.TextDocument, token: vscode.CancellationToken): Promise<vscode.CodeLens[]> {\n    const enabled = summariesEnabled();\n    const visible = summariesVisible();\n\n    if (!enabled) {\n      return [];\n    }\n",
+        "summary": "Defines the `provideCodeLenses` function and performs initial checks to exit if summaries are disabled."
+      },
+      {
+        "line": 9,
+        "chunkCode": "    const uri = document.uri.toString();\n    log('uri', uri);\n    log('document.fileName', document.fileName);\n    if (uri.includes('extension-output') || \n        uri.includes('extension-log') ||\n        uri.includes('.git') ||\n        uri.includes('node_modules') ||\n        uri.includes('.codetorch')) {\n      return [];\n    }\n\n    log('provideCodeLenses start', uri);",
+        "summary": "Filters out specific document URIs (e.g., extension logs, git files, node modules) from CodeLens processing."
+      },
+      {
+        "line": 21,
+        "chunkCode": "    const cached = this.cache.get(uri);\n    if (cached) {\n      log('Using cached CodeLens', cached.length);\n      return cached;\n    }\n    ",
+        "summary": "Checks for and returns cached CodeLenses immediately if they are available for the current document."
+      },
+      {
+        "line": 27,
+        "chunkCode": "    const functions = await detectFunctions(document);\n    const cachedSummaries = await loadSummary(document) ?? [];\n    const updatedSummaries: FunctionSummary[] = [...cachedSummaries];\n    const matched = new Set<FunctionSummary>();\n    let summariesChanged = false;\n\n    const lenses: vscode.CodeLens[] = [];\n\n    const sorted = [...functions].sort((a, b) => a.startLine - b.startLine);\n\n    const tasksToGenerate: PendingSummaryTask[] = [];",
+        "summary": "Detects functions within the document, loads any existing summaries, and initializes variables for processing."
+      },
+      {
+        "line": 38,
+        "chunkCode": "    for (let i = 0; i < sorted.length; i++) {\n      const fn = sorted[i];\n      const nextStart = (i + 1 < sorted.length) ? sorted[i + 1].startLine : document.lineCount;\n      const code = document.getText(new vscode.Range(fn.startLine, 0, nextStart, 0));\n\n      let fnSummary: FunctionSummary | undefined = cachedSummaries.find(s => s.liveCode === code);\n      \n      if (!fnSummary || (!document.isDirty && fnSummary.lastSavedCode !== code)) {\n        if (document.isDirty) {\n          log('Document dirty; defer regeneration for function', fn.name);\n          continue;\n        }\n\n        tasksToGenerate.push({ fn, code, startLine: fn.startLine });\n\n        if (fnSummary) {\n          matched.add(fnSummary);\n        }\n      } else {\n        if (fnSummary) {\n          if (fnSummary.startLine !== fn.startLine) {\n            fnSummary.startLine = fn.startLine;\n            const idx = updatedSummaries.findIndex(s => s.liveCode === code);\n            if (idx >= 0) updatedSummaries[idx] = fnSummary;\n            summariesChanged = true;\n          }\n          if (fnSummary.liveCode !== code) {\n            fnSummary.liveCode = code;\n            const idx2 = updatedSummaries.findIndex(s => s.liveCode === code);\n            if (idx2 >= 0) updatedSummaries[idx2] = fnSummary;\n          }\n        }\n        matched.add(fnSummary);\n        log(`Using cached summaries for function ${fn.name}`);\n      }\n\n      // TODO: when implement proper function summaries, add this back in\n      // if (visible && fnSummary && fnSummary.units.length) {\n      //   const functionSummaryText = fnSummary.units[0].summary;\n      //   const fnPos = new vscode.Position(fn.startLine, 0);\n      //   lenses.push(new vscode.CodeLens(new vscode.Range(fnPos, fnPos), {\n      //     title: functionSummaryText,\n      //     command: 'codetorch.nop',\n      //     tooltip: 'Function summary'\n      //   }));\n      // }\n      // log('function summary exists for ', fn.name, fnSummary ? 'yes' : 'no');\n",
+        "summary": "Iterates through each detected function, matching it with existing summaries or marking it for regeneration if the code has changed."
+      },
+      {
+        "line": 86,
+        "chunkCode": "      if (visible && fnSummary) {\n        for (const unit of fnSummary.units) {\n          const insertionLine = Math.min(fn.startLine + unit.line - 1, nextStart - 1);\n          const pos = new vscode.Position(insertionLine, 0);\n          lenses.push(new vscode.CodeLens(new vscode.Range(pos, pos), {\n            title: unit.summary,\n            command: 'codetorch.nop',\n            tooltip: 'Code summary'\n          }));\n        }\n      }\n    }\n",
+        "summary": "Creates and adds `vscode.CodeLens` objects to the list based on the available and visible function summaries."
+      },
+      {
+        "line": 99,
+        "chunkCode": "    if (tasksToGenerate.length > 0 && !document.isDirty) {\n      this.scheduleSummaryGeneration(document, tasksToGenerate);\n    }\n",
+        "summary": "Schedules a background task to generate new or updated summaries for functions if the document is not currently dirty."
+      },
+      {
+        "line": 103,
+        "chunkCode": "    this.cache.set(document.uri.toString(), lenses);\n\n    if (!document.isDirty) {\n      const finalSummaries = updatedSummaries.filter(s => matched.has(s));\n      if (summariesChanged || finalSummaries.length !== cachedSummaries.length) {\n        await saveSummary(document, finalSummaries);\n      }\n    } else {\n      await saveSummary(document, updatedSummaries);\n    }\n",
+        "summary": "Caches the generated CodeLenses for the current document and saves the updated function summaries to persistent storage."
+      },
+      {
+        "line": 114,
+        "chunkCode": "    return lenses;\n  }\n\n",
+        "summary": "Returns the final compiled list of CodeLens objects to be displayed in the editor."
+      }
+    ]
+  },
+  {
+    "liveCode": "  private scheduleSummaryGeneration(document: vscode.TextDocument, tasks: PendingSummaryTask[]) {\n    if (!summariesEnabled()) return; // Respect global setting\n\n    const uri = document.uri.toString();\n\n    if (this.updateTimeout.has(uri)) return;\n\n    const timeout = setTimeout(async () => {\n      for (const task of tasks) {\n        if (document.isDirty) break;\n\n        try {\n          log('Async summarizing function', task.fn.name);\n          const rawUnits = await summarizeFunctionSemanticUnits(task.code, document.languageId);\n\n          const lines = task.code.split(/\\r?\\n/);\n          const units: ChunkSummary[] = rawUnits.map((unit, idx) => {\n            const chunkStartRel = unit.line;\n            const chunkEndRel = (idx + 1 < rawUnits.length) ? rawUnits[idx + 1].line - 1 : lines.length;\n            const chunkCode = lines.slice(chunkStartRel - 1, chunkEndRel).join('\\n');\n            return { line: unit.line, chunkCode, summary: unit.summary };\n          });\n\n          const fnSummary: FunctionSummary = {\n            liveCode: task.code,\n            lastSavedCode: task.code,\n            startLine: task.startLine,\n            units\n          };\n\n          const cachedSummaries = await loadSummary(document) ?? [];\n          const idxExisting = cachedSummaries.findIndex(s => s.liveCode === task.code);\n          if (idxExisting >= 0) {\n            cachedSummaries[idxExisting] = fnSummary;\n          } else {\n            cachedSummaries.push(fnSummary);\n          }\n          await saveSummary(document, cachedSummaries);\n\n          this.cache.delete(uri);\n          this._onDidChangeCodeLenses.fire();\n        } catch (err) {\n          log('Failed to asynchronously summarize function', task.fn.name, err);\n        }\n      }\n\n      this.updateTimeout.delete(uri);\n    }, 0);\n\n    this.updateTimeout.set(uri, timeout);\n  }\n\n",
+    "lastSavedCode": "  private scheduleSummaryGeneration(document: vscode.TextDocument, tasks: PendingSummaryTask[]) {\n    if (!summariesEnabled()) return; // Respect global setting\n\n    const uri = document.uri.toString();\n\n    if (this.updateTimeout.has(uri)) return;\n\n    const timeout = setTimeout(async () => {\n      for (const task of tasks) {\n        if (document.isDirty) break;\n\n        try {\n          log('Async summarizing function', task.fn.name);\n          const rawUnits = await summarizeFunctionSemanticUnits(task.code, document.languageId);\n\n          const lines = task.code.split(/\\r?\\n/);\n          const units: ChunkSummary[] = rawUnits.map((unit, idx) => {\n            const chunkStartRel = unit.line;\n            const chunkEndRel = (idx + 1 < rawUnits.length) ? rawUnits[idx + 1].line - 1 : lines.length;\n            const chunkCode = lines.slice(chunkStartRel - 1, chunkEndRel).join('\\n');\n            return { line: unit.line, chunkCode, summary: unit.summary };\n          });\n\n          const fnSummary: FunctionSummary = {\n            liveCode: task.code,\n            lastSavedCode: task.code,\n            startLine: task.startLine,\n            units\n          };\n\n          const cachedSummaries = await loadSummary(document) ?? [];\n          const idxExisting = cachedSummaries.findIndex(s => s.liveCode === task.code);\n          if (idxExisting >= 0) {\n            cachedSummaries[idxExisting] = fnSummary;\n          } else {\n            cachedSummaries.push(fnSummary);\n          }\n          await saveSummary(document, cachedSummaries);\n\n          this.cache.delete(uri);\n          this._onDidChangeCodeLenses.fire();\n        } catch (err) {\n          log('Failed to asynchronously summarize function', task.fn.name, err);\n        }\n      }\n\n      this.updateTimeout.delete(uri);\n    }, 0);\n\n    this.updateTimeout.set(uri, timeout);\n  }\n\n",
+    "startLine": 143,
+    "units": [
+      {
+        "line": 2,
+        "chunkCode": "    if (!summariesEnabled()) return; // Respect global setting\n\n    const uri = document.uri.toString();\n\n    if (this.updateTimeout.has(uri)) return;\n",
+        "summary": "Perform initial checks to ensure summarization is enabled and not already scheduled for the document."
+      },
+      {
+        "line": 8,
+        "chunkCode": "    const timeout = setTimeout(async () => {",
+        "summary": "Schedule an asynchronous task to process summary generation, with a mechanism to track its activity."
+      },
+      {
+        "line": 9,
+        "chunkCode": "      for (const task of tasks) {\n        if (document.isDirty) break;\n\n        try {",
+        "summary": "Iterate through each pending summary task for the document, breaking the loop if the document becomes dirty."
+      },
+      {
+        "line": 13,
+        "chunkCode": "          log('Async summarizing function', task.fn.name);\n          const rawUnits = await summarizeFunctionSemanticUnits(task.code, document.languageId);\n\n          const lines = task.code.split(/\\r?\\n/);\n          const units: ChunkSummary[] = rawUnits.map((unit, idx) => {\n            const chunkStartRel = unit.line;\n            const chunkEndRel = (idx + 1 < rawUnits.length) ? rawUnits[idx + 1].line - 1 : lines.length;\n            const chunkCode = lines.slice(chunkStartRel - 1, chunkEndRel).join('\\n');\n            return { line: unit.line, chunkCode, summary: unit.summary };\n          });\n\n          const fnSummary: FunctionSummary = {\n            liveCode: task.code,\n            lastSavedCode: task.code,\n            startLine: task.startLine,\n            units\n          };\n",
+        "summary": "For each task, asynchronously summarize the code into semantic units and structure them into a comprehensive function summary."
+      },
+      {
+        "line": 31,
+        "chunkCode": "          const cachedSummaries = await loadSummary(document) ?? [];\n          const idxExisting = cachedSummaries.findIndex(s => s.liveCode === task.code);\n          if (idxExisting >= 0) {\n            cachedSummaries[idxExisting] = fnSummary;\n          } else {\n            cachedSummaries.push(fnSummary);\n          }\n          await saveSummary(document, cachedSummaries);\n",
+        "summary": "Load existing summaries, update them with the new function summary, and then save the modified collection."
+      },
+      {
+        "line": 40,
+        "chunkCode": "          this.cache.delete(uri);\n          this._onDidChangeCodeLenses.fire();\n        } catch (err) {",
+        "summary": "Clear a local cache and trigger a UI update, likely for CodeLenses, after successful summarization."
+      },
+      {
+        "line": 43,
+        "chunkCode": "          log('Failed to asynchronously summarize function', task.fn.name, err);\n        }\n      }\n",
+        "summary": "Catch and log any errors that occur during the asynchronous summarization of an individual function."
+      },
+      {
+        "line": 47,
+        "chunkCode": "      this.updateTimeout.delete(uri);\n    }, 0);\n",
+        "summary": "Once all tasks for the document are processed or an error occurs, remove the document's URI from the active update tracker."
+      },
+      {
+        "line": 50,
+        "chunkCode": "    this.updateTimeout.set(uri, timeout);\n  }\n\n",
+        "summary": "Store the `setTimeout` identifier to prevent multiple concurrent summary generation processes for the same document."
+      }
+    ]
+  },
+  {
+    "liveCode": "   handleDocumentSave(document: vscode.TextDocument) {\n    log('handleDocumentSave', document.uri.toString());\n    const uri = document.uri.toString();\n    if (uri.includes('extension-output') || \n        uri.includes('extension-log') ||\n        uri.includes('.git') ||\n        uri.includes('node_modules') ||\n        uri.includes('.codetorch') ||\n        document.uri.scheme !== 'file') {\n      return; // Don't process this document\n    }\n    this.cache.delete(uri);\n    this._onDidChangeCodeLenses.fire();\n  }\n\n",
+    "lastSavedCode": "   handleDocumentSave(document: vscode.TextDocument) {\n    log('handleDocumentSave', document.uri.toString());\n    const uri = document.uri.toString();\n    if (uri.includes('extension-output') || \n        uri.includes('extension-log') ||\n        uri.includes('.git') ||\n        uri.includes('node_modules') ||\n        uri.includes('.codetorch') ||\n        document.uri.scheme !== 'file') {\n      return; // Don't process this document\n    }\n    this.cache.delete(uri);\n    this._onDidChangeCodeLenses.fire();\n  }\n\n",
+    "startLine": 195,
+    "units": [
+      {
+        "line": 4,
+        "chunkCode": "    if (uri.includes('extension-output') || \n        uri.includes('extension-log') ||\n        uri.includes('.git') ||\n        uri.includes('node_modules') ||\n        uri.includes('.codetorch') ||\n        document.uri.scheme !== 'file') {\n      return; // Don't process this document\n    }",
+        "summary": "The function checks if the document's URI corresponds to an ignored path or a non-file scheme, returning immediately if it does."
+      },
+      {
+        "line": 12,
+        "chunkCode": "    this.cache.delete(uri);\n    this._onDidChangeCodeLenses.fire();\n  }\n\n",
+        "summary": "If the document is not excluded, its URI is removed from a cache and an event is triggered to refresh code lenses."
+      }
+    ]
+  },
+  {
+    "liveCode": "  async handleTextDocumentChange(e: vscode.TextDocumentChangeEvent) {\n    const uri = e.document.uri.toString();\n\n    if (uri.includes('extension-output') ||\n        uri.includes('extension-log') ||\n        uri.includes('.git') ||\n        uri.includes('node_modules') ||\n        uri.includes('.codetorch') ||\n        e.document.uri.scheme !== 'file') {\n      return;\n    }\n    \n    log('handleTextDocumentChange', e.document.uri.toString());\n\n    const summaries = await loadSummary(e.document);\n    if (!summaries || summaries.length === 0) return;\n\n    const functions = await detectFunctions(e.document);\n    \n    const sortedFns = [...functions].sort((a,b)=>a.startLine-b.startLine);\n\n    for (const change of [...e.contentChanges].reverse()) {\n      const changeStart = change.range.start.line;\n      const changeEnd   = change.range.end.line;\n      const linesAdded  = change.text.split('\\n').length - 1;\n      const linesRemoved = changeEnd - changeStart;\n      const delta = linesAdded - linesRemoved;\n\n      for (const fs of summaries) {\n        if (fs.startLine > changeStart) {\n          fs.startLine += delta;\n        }\n      }\n\n      let containingIdx = -1;\n      for (let i=0;i<sortedFns.length;i++) {\n        const fn = sortedFns[i];\n        const fnStart = fn.startLine;\n        const fnEnd   = (i+1<sortedFns.length)? sortedFns[i+1].startLine : e.document.lineCount;\n        if (changeStart >= fnStart && changeStart <= fnEnd) { containingIdx = i; break; }\n      }\n\n      log('found containingIdx', containingIdx);\n      \n      if (containingIdx !== -1) {\n        log('found fn', sortedFns[containingIdx].name);\n        const fnInfo = sortedFns[containingIdx];\n        const fs = summaries.find(s => s.startLine === fnInfo.startLine);\n        if (fs) {\n          log('found fs', fs);\n          const nextStart = (containingIdx + 1 < sortedFns.length) ? sortedFns[containingIdx + 1].startLine : e.document.lineCount;\n          fs.liveCode = e.document.getText(new vscode.Range(fnInfo.startLine, 0, nextStart, 0));\n          \n          if (delta !== 0) {\n            const relStart0 = changeStart - fs.startLine; // 0-based\n            for (const unit of fs.units) {\n              if (unit.line - 1 > relStart0) {\n                unit.line += delta;\n              }\n            }\n          }\n        }\n      }\n    }\n\n    log('summaries', summaries);\n    await saveSummary(e.document, summaries);\n    this.cache.delete(uri);\n  }\n\n\n",
+    "lastSavedCode": "  async handleTextDocumentChange(e: vscode.TextDocumentChangeEvent) {\n    const uri = e.document.uri.toString();\n\n    if (uri.includes('extension-output') ||\n        uri.includes('extension-log') ||\n        uri.includes('.git') ||\n        uri.includes('node_modules') ||\n        uri.includes('.codetorch') ||\n        e.document.uri.scheme !== 'file') {\n      return;\n    }\n    \n    log('handleTextDocumentChange', e.document.uri.toString());\n\n    const summaries = await loadSummary(e.document);\n    if (!summaries || summaries.length === 0) return;\n\n    const functions = await detectFunctions(e.document);\n    \n    const sortedFns = [...functions].sort((a,b)=>a.startLine-b.startLine);\n\n    for (const change of [...e.contentChanges].reverse()) {\n      const changeStart = change.range.start.line;\n      const changeEnd   = change.range.end.line;\n      const linesAdded  = change.text.split('\\n').length - 1;\n      const linesRemoved = changeEnd - changeStart;\n      const delta = linesAdded - linesRemoved;\n\n      for (const fs of summaries) {\n        if (fs.startLine > changeStart) {\n          fs.startLine += delta;\n        }\n      }\n\n      let containingIdx = -1;\n      for (let i=0;i<sortedFns.length;i++) {\n        const fn = sortedFns[i];\n        const fnStart = fn.startLine;\n        const fnEnd   = (i+1<sortedFns.length)? sortedFns[i+1].startLine : e.document.lineCount;\n        if (changeStart >= fnStart && changeStart <= fnEnd) { containingIdx = i; break; }\n      }\n\n      log('found containingIdx', containingIdx);\n      \n      if (containingIdx !== -1) {\n        log('found fn', sortedFns[containingIdx].name);\n        const fnInfo = sortedFns[containingIdx];\n        const fs = summaries.find(s => s.startLine === fnInfo.startLine);\n        if (fs) {\n          log('found fs', fs);\n          const nextStart = (containingIdx + 1 < sortedFns.length) ? sortedFns[containingIdx + 1].startLine : e.document.lineCount;\n          fs.liveCode = e.document.getText(new vscode.Range(fnInfo.startLine, 0, nextStart, 0));\n          \n          if (delta !== 0) {\n            const relStart0 = changeStart - fs.startLine; // 0-based\n            for (const unit of fs.units) {\n              if (unit.line - 1 > relStart0) {\n                unit.line += delta;\n              }\n            }\n          }\n        }\n      }\n    }\n\n    log('summaries', summaries);\n    await saveSummary(e.document, summaries);\n    this.cache.delete(uri);\n  }\n\n\n",
+    "startLine": 210,
+    "units": [
+      {
+        "line": 4,
+        "chunkCode": "    if (uri.includes('extension-output') ||\n        uri.includes('extension-log') ||\n        uri.includes('.git') ||\n        uri.includes('node_modules') ||\n        uri.includes('.codetorch') ||\n        e.document.uri.scheme !== 'file') {\n      return;\n    }\n    \n    log('handleTextDocumentChange', e.document.uri.toString());\n",
+        "summary": "Guards against processing documents from specific ignored paths or schemes."
+      },
+      {
+        "line": 15,
+        "chunkCode": "    const summaries = await loadSummary(e.document);\n    if (!summaries || summaries.length === 0) return;\n\n    const functions = await detectFunctions(e.document);\n    \n    const sortedFns = [...functions].sort((a,b)=>a.startLine-b.startLine);\n",
+        "summary": "Loads existing summaries for the document and detects all functions within it."
+      },
+      {
+        "line": 22,
+        "chunkCode": "    for (const change of [...e.contentChanges].reverse()) {\n      const changeStart = change.range.start.line;\n      const changeEnd   = change.range.end.line;\n      const linesAdded  = change.text.split('\\n').length - 1;\n      const linesRemoved = changeEnd - changeStart;\n      const delta = linesAdded - linesRemoved;\n\n      for (const fs of summaries) {\n        if (fs.startLine > changeStart) {\n          fs.startLine += delta;\n        }\n      }\n\n      let containingIdx = -1;\n      for (let i=0;i<sortedFns.length;i++) {\n        const fn = sortedFns[i];\n        const fnStart = fn.startLine;\n        const fnEnd   = (i+1<sortedFns.length)? sortedFns[i+1].startLine : e.document.lineCount;\n        if (changeStart >= fnStart && changeStart <= fnEnd) { containingIdx = i; break; }\n      }\n\n      log('found containingIdx', containingIdx);\n      \n      if (containingIdx !== -1) {\n        log('found fn', sortedFns[containingIdx].name);\n        const fnInfo = sortedFns[containingIdx];\n        const fs = summaries.find(s => s.startLine === fnInfo.startLine);\n        if (fs) {\n          log('found fs', fs);\n          const nextStart = (containingIdx + 1 < sortedFns.length) ? sortedFns[containingIdx + 1].startLine : e.document.lineCount;\n          fs.liveCode = e.document.getText(new vscode.Range(fnInfo.startLine, 0, nextStart, 0));\n          \n          if (delta !== 0) {\n            const relStart0 = changeStart - fs.startLine; // 0-based\n            for (const unit of fs.units) {\n              if (unit.line - 1 > relStart0) {\n                unit.line += delta;\n              }\n            }\n          }\n        }\n      }\n    }\n",
+        "summary": "Iterates through content changes to adjust summary line numbers and update affected function code."
+      },
+      {
+        "line": 66,
+        "chunkCode": "    log('summaries', summaries);\n    await saveSummary(e.document, summaries);\n    this.cache.delete(uri);\n  }\n\n\n",
+        "summary": "Saves the updated summaries and clears the document from the cache."
+      }
+    ]
+  },
+  {
+    "liveCode": "  dispose() {\n    for (const timeout of this.updateTimeout.values()) {\n      clearTimeout(timeout);\n    }\n    this.updateTimeout.clear();\n    \n    this.cache.clear();\n  }\n\n",
+    "lastSavedCode": "  dispose() {\n    for (const timeout of this.updateTimeout.values()) {\n      clearTimeout(timeout);\n    }\n    this.updateTimeout.clear();\n    \n    this.cache.clear();\n  }\n\n",
+    "startLine": 281,
+    "units": [
+      {
+        "line": 2,
+        "chunkCode": "    for (const timeout of this.updateTimeout.values()) {\n      clearTimeout(timeout);\n    }\n    this.updateTimeout.clear();\n    ",
+        "summary": "This section iterates through and clears all scheduled timeouts, then clears the collection holding them."
+      },
+      {
+        "line": 7,
+        "chunkCode": "    this.cache.clear();\n  }\n\n",
+        "summary": "This section clears any cached data held by the object."
+      }
+    ]
+  },
+  {
+    "liveCode": "  public refresh() {\n    this.cache.clear();\n    this._onDidChangeCodeLenses.fire();\n  }\n} ",
+    "lastSavedCode": "  public refresh() {\n    this.cache.clear();\n    this._onDidChangeCodeLenses.fire();\n  }\n} ",
+    "startLine": 290,
+    "units": [
+      {
+        "line": 2,
+        "chunkCode": "    this.cache.clear();",
+        "summary": "Clears the internal cache of the object."
+      },
+      {
+        "line": 3,
+        "chunkCode": "    this._onDidChangeCodeLenses.fire();\n  }\n} ",
+        "summary": "Fires an event to notify listeners that code lenses have changed and may need to be re-rendered."
+      }
+    ]
+  }
+]
