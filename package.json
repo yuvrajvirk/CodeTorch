@@ -1,52 +1,41 @@
 {
   "name": "codetorch",
   "displayName": "CodeTorch",
+  "publisher": "CodeTorch",
   "description": "Scaffolds code with natural language and visual explanations",
   "version": "0.0.1",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/CodeTorch/codetorch.git"
+  },
   "engines": {
-    "vscode": "^1.96.2"
+    "vscode": "^1.93.0"
   },
   "categories": [
     "Other"
   ],
   "activationEvents": [
     "onStartupFinished",
-    "onCommand:codetorch.annotateCurrentFile",
-    "onCommand:codetorch.helloWorld",
-    "onCommand:codetorch.summarizeFunction",
-    "onCommand:codetorch.collectCallGraphCurrentFile",
-    "onCommand:codetorch.viewCallGraphCurrentFile"
+    "onCommand:codetorch.showQuickMenu"
   ],
   "main": "./out/extension.js",
+  "icon": "assets/codeTorchIcon.png",
   "contributes": {
     "commands": [
       {
-        "command": "codetorch.helloWorld",
-        "title": "Hello World"
-      },
-      {
-        "command": "codetorch.annotateCurrentFile",
-        "title": "CodeTorch: Annotate Current File",
-        "category": "CodeTorch"
-      },
-      {
-        "command": "codetorch.summarizeFunction",
-        "title": "CodeTorch: Summarize Current Function",
-        "category": "CodeTorch"
-      },
-      {
-        "command": "codetorch.collectCallGraphCurrentFile",
-        "title": "CodeTorch: Collect Call Graph (Current File)",
-        "category": "CodeTorch"
-      },
-      {
-        "command": "codetorch.viewCallGraphCurrentFile",
-        "title": "CodeTorch: View Call Graph (Current File)",
-        "category": "CodeTorch"
-      },
-      {
         "command": "codetorch.nop",
-        "title": ""
+        "title": "CodeTorch: No Operation",
+        "category": "CodeTorch"
+      },
+      {
+        "command": "codetorch.showQuickMenu",
+        "title": "CodeTorch: Settings",
+        "category": "CodeTorch"
+      },
+      {
+        "command": "codetorch.regenerateSummaries",
+        "title": "CodeTorch: Regenerate Summaries for Current File",
+        "category": "CodeTorch"
       }
     ],
     "configuration": {
@@ -54,8 +43,8 @@
       "properties": {
         "codetorch.model": {
           "type": "string",
-          "default": "anthropic.claude-3-haiku-20240307-v1:0",
-          "description": "Bedrock model ID to use for summarization."
+          "default": "gemini-2.0-flash",
+          "description": "LLM model ID to use for summarization."
         },
         "codetorch.temperature": {
           "type": "number",
@@ -71,50 +60,48 @@
           "type": "string",
           "default": "us-east-1",
           "description": "AWS region where Bedrock is available."
+        },
+        "codetorch.showSummaries": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show inline CodeLens summaries."
+        },
+        "codetorch.enableSummaries": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable LLM-based summary generation. Disabling also hides summaries."
+        },
+        "codetorch.regenerationTrigger": {
+          "type": "string",
+          "enum": ["onSave", "manual"],
+          "default": "onSave",
+          "description": "When CodeTorch should regenerate summaries: 'onSave' (default) or 'manual'."
         }
       }
-    },
-    "colors": [
-      {
-        "id": "codetorch.functionSummaryForeground",
-        "description": "Text colour for function-level summaries (CodeLens)",
-        "defaults": {
-          "light": "#4D4D4D",
-          "dark": "#BBBBBB",
-          "highContrast": "#FFFFFF"
-        }
-      },
-      {
-        "id": "codetorch.lineSummaryForeground",
-        "description": "Text colour for line-level summaries (decorations)",
-        "defaults": {
-          "light": "#666666",
-          "dark": "#909090",
-          "highContrast": "#FFFFFF"
-        }
-      }
-    ]
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./",
+    "watch": "tsc -w -p ./",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src",
     "test": "vscode-test"
   },
   "dependencies": {
-    "@aws-sdk/client-bedrock-runtime": "^3.508.0"
+    "@aws-sdk/client-bedrock-runtime": "^3.508.0",
+    "@google/genai": "^0.3.1"
   },
   "devDependencies": {
-    "@types/vscode": "^1.96.2",
     "@types/mocha": "^10.0.10",
     "@types/node": "20.x",
+    "@types/vscode": "^1.93.0",
     "@typescript-eslint/eslint-plugin": "^8.31.1",
     "@typescript-eslint/parser": "^8.31.1",
-    "eslint": "^9.25.1",
-    "typescript": "^5.8.3",
     "@vscode/test-cli": "^0.0.10",
-    "@vscode/test-electron": "^2.5.2"
+    "@vscode/test-electron": "^2.5.2",
+    "eslint": "^9.25.1",
+    "mocha": "^10.2.0",
+    "typescript": "^5.8.3"
   }
 }

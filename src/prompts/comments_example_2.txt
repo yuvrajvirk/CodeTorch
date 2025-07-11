@@ -25,6 +25,6 @@ Format your response by providing, for each logical section, the line number whe
 Do not repeat the code; just provide the summary.
 
 ASSISTANT:
-8| Build a benchmark instance with example inputs and outputs.
-10| Execute value_search with specified timeout and solution constraints.
-17| Assert that the number and content of solutions match expectations.
+8| Build a benchmark instance with example inputs and output
+10| Execute value_search with specified timeout and solution constraints
+17| Assert that the number and content of solutions match expectations

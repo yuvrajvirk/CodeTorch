@@ -20,5 +20,5 @@ Format your response by providing, for each logical section, the line number whe
 Do not repeat the code; just provide the summary.
 
 ASSISTANT:
-3| If ordered, loop through possible tokens and return the first one not already used.
-9| Otherwise, randomly choose a token not present in existing_variables.
+3| If ordered, loop through possible tokens and return the first one not already used
+9| Otherwise, randomly choose a token not present in existing_variables

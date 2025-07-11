@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { log } from './utils';
 
 export interface FunctionInfo {
 	name: string;
@@ -10,12 +11,19 @@ const ARROW_FUNCTION = /(?:const|let|var)\s+([A-Za-z0-9_$]+)\s*=\s*\([^)]*\)\s*=
 
 /** Recursively traverse DocumentSymbol tree collecting functions & methods */
 function walkDocumentSymbols(symbols: vscode.DocumentSymbol[] | undefined, out: FunctionInfo[], document: vscode.TextDocument) {
+	log('walkDocumentSymbols', symbols);
 	if (!symbols) return;
 	for (const sym of symbols) {
 		if (sym.kind === vscode.SymbolKind.Function || sym.kind === vscode.SymbolKind.Method) {
 			out.push({ name: sym.name, startLine: sym.range.start.line });
+
+			// Do NOT recurse into children of functions/methods to avoid
+			// capturing inline arrow functions or nested anonymous callbacks
+			// that would incorrectly split outer function bodies.
+			continue;
 		}
-		// Recurse into children (e.g., methods inside classes)
+
+		// Recurse into children for non-function symbols (e.g., classes, namespaces)
 		walkDocumentSymbols(sym.children, out, document);
 	}
 }
@@ -36,11 +44,13 @@ export async function detectFunctions(document: vscode.TextDocument): Promise<Fu
 			walkDocumentSymbols(symbols, infos, document);
 		}
 	} catch (err) {
-		console.error('DocumentSymbolProvider failed', err);
+		log('DocumentSymbolProvider failed', err);
 	}
+
 
 	// Fallback to naive regex if nothing found
 	if (infos.length === 0) {
+		log('No DocumentSymbolProvider found, falling back to regex');
 		for (let i = 0; i < document.lineCount; i++) {
 			const text = document.lineAt(i).text;
 			let match = FUNCTION_DECLARATION.exec(text);

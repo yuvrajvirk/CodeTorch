@@ -16,6 +16,72 @@ export function activate(context: vscode.ExtensionContext) {
 	outputChannel.show(true);
 	log('CodeTorch extension activated');
 
+	// === CodeTorch Status Bar Quick Menu ===
+	let codelensProviderRef: { refresh: () => void; handleDocumentSave: (doc: vscode.TextDocument) => void } | undefined;
+	const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+	statusBar.command = 'codetorch.showQuickMenu';
+
+	// Helper to keep the status bar in sync with user settings
+	const updateStatusBar = () => {
+		const cfg = vscode.workspace.getConfiguration('codetorch');
+		const visible = cfg.get<boolean>('showSummaries', true);
+		const enabled = cfg.get<boolean>('enableSummaries', true);
+		if (!enabled) {
+			statusBar.text = '$(circle-slash) CodeTorch Off';
+			statusBar.tooltip = 'CodeTorch summaries generation disabled';
+		} else if (!visible) {
+			statusBar.text = '$(eye-closed) CodeTorch Hidden';
+			statusBar.tooltip = 'CodeTorch summaries hidden (generation active)';
+		} else {
+			statusBar.text = '$(symbol-function) CodeTorch On';
+			statusBar.tooltip = 'CodeTorch summaries visible';
+		}
+		log('Updated status bar');
+		statusBar.show();
+		// Trigger CodeLens refresh immediately
+		if (codelensProviderRef) {
+			codelensProviderRef.refresh();
+		}
+	};
+
+	updateStatusBar();
+	context.subscriptions.push(statusBar);
+
+	// Command that shows a quick-pick menu to toggle CodeTorch options
+	const quickMenuDisposable = vscode.commands.registerCommand('codetorch.showQuickMenu', async () => {
+		const cfg = vscode.workspace.getConfiguration('codetorch');
+		const visible = cfg.get<boolean>('showSummaries', true);
+		const enabled = cfg.get<boolean>('enableSummaries', true);
+
+		const selected = await vscode.window.showQuickPick([
+			{ label: `${visible ? '$(check)' : '$(x)'} Summaries Visibility`, description: visible ? 'Currently ON – click to turn OFF' : 'Currently OFF – click to turn ON' },
+			{ label: `${enabled ? '$(check)' : '$(x)'} Summaries Generation`, description: enabled ? 'Currently ENABLED – click to DISABLE' : 'Currently DISABLED – click to ENABLE' }
+		], { placeHolder: 'CodeTorch settings' });
+
+		if (!selected) { return; }
+
+		if (selected.label.includes('Visibility')) {
+			await cfg.update('showSummaries', !visible, vscode.ConfigurationTarget.Global);
+		} else if (selected.label.includes('Generation')) {
+			const newEnabled = !enabled;
+			await cfg.update('enableSummaries', newEnabled, vscode.ConfigurationTarget.Global);
+			if (!newEnabled) {
+				await cfg.update('showSummaries', false, vscode.ConfigurationTarget.Global);
+			}
+		}
+
+		updateStatusBar();
+	});
+	context.subscriptions.push(quickMenuDisposable);
+
+	// React to configuration changes made elsewhere
+	const cfgListener = vscode.workspace.onDidChangeConfiguration(e => {
+		if (e.affectsConfiguration('codetorch.showSummaries') || e.affectsConfiguration('codetorch.enableSummaries')) {
+			updateStatusBar();
+		}
+	});
+	context.subscriptions.push(cfgListener);
+
 	// The command has been defined in the package.json file
 	// Now provide the implementation of the command with registerCommand
 	// The commandId parameter must match the command field in package.json
@@ -151,20 +217,93 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	});
 
+	const regenerateDisposable = vscode.commands.registerCommand('codetorch.regenerateSummaries', async () => {
+		const editor = vscode.window.activeTextEditor;
+		if (!editor) {
+			vscode.window.showErrorMessage('No active editor to regenerate.');
+			return;
+		}
+
+		if (!codelensProviderRef) {
+			vscode.window.showErrorMessage('CodeTorch not initialised yet.');
+			return;
+		}
+
+		// Attempt to save the document so that it is not dirty; this guarantees summarisation runs
+		await editor.document.save();
+
+		// Mimic the save-triggered regeneration explicitly
+		codelensProviderRef.handleDocumentSave(editor.document);
+	});
+	context.subscriptions.push(regenerateDisposable);
+
 	const noopDisposable = vscode.commands.registerCommand('codetorch.nop', () => {});
 
-	// Register CodeLens provider for semantic summaries
-	// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-	// @ts-ignore - extension .js added at build time
-	import('./codelens.js').then(mod => {
+	// Test if DocumentSymbolProvider is available for a given document
+	const testDocumentSymbolProvider = async (document: vscode.TextDocument): Promise<boolean> => {
+		try {
+			const symbols = await vscode.commands.executeCommand<vscode.DocumentSymbol[]>(
+				'vscode.executeDocumentSymbolProvider',
+				document.uri
+			);
+			// If we get a result (even empty array), the provider is available
+			return Array.isArray(symbols);
+		} catch (error) {
+			log('DocumentSymbolProvider test failed:', error);
+			return false;
+		}
+	};
+
+	// Wait for DocumentSymbolProvider to be available with max delay
+	const waitForDocumentSymbolProvider = async (maxDelayMs: number = 10000): Promise<boolean> => {
+		const startTime = Date.now();
+		const checkInterval = 100; // Check every 100ms
+		
+		while (Date.now() - startTime < maxDelayMs) {
+			// Try to find a document to test with
+			let testDocument: vscode.TextDocument | undefined;
+			
+			if (vscode.window.activeTextEditor) {
+				testDocument = vscode.window.activeTextEditor.document;
+			} else {
+				// Try to get any open document
+				const documents = vscode.workspace.textDocuments;
+				testDocument = documents.find(doc => doc.uri.scheme === 'file');
+			}
+			
+			if (testDocument) {
+				const isAvailable = await testDocumentSymbolProvider(testDocument);
+				if (isAvailable) {
+					log('DocumentSymbolProvider is available');
+					return true;
+				}
+			}
+			
+			// Wait before next check
+			await new Promise(resolve => setTimeout(resolve, checkInterval));
+		}
+		
+		log('DocumentSymbolProvider not available after timeout');
+		return false;
+	};
+
+	// Defer CodeLens provider registration until language services are ready
+	const initializeCodeLensProvider = async () => {
+		// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+		// @ts-ignore - extension .js added at build time
+		const mod = await import('./codelens.js');
 		const codelensProvider = new mod.FunctionSummaryCodeLensProvider();
+		codelensProviderRef = codelensProvider;
 		context.subscriptions.push(
 			vscode.languages.registerCodeLensProvider({ scheme: 'file' }, codelensProvider)
 		);
 
 		// Refresh summaries on document save
 		const saveListener = vscode.workspace.onDidSaveTextDocument((doc) => {
-			codelensProvider.handleDocumentSave(doc);
+			const trigger = vscode.workspace.getConfiguration('codetorch').get<string>('regenerationTrigger', 'onSave');
+			if (trigger === 'onSave') {
+				codelensProvider.handleDocumentSave(doc);
+			}
 		});
 		context.subscriptions.push(saveListener);
 
@@ -178,13 +317,26 @@ export function activate(context: vscode.ExtensionContext) {
 		context.subscriptions.push({
 			dispose: () => codelensProvider.dispose()
 		});
-	});
 
-	context.subscriptions.push(disposable);
-	context.subscriptions.push(annotateDisposable);
-	context.subscriptions.push(summarizeDisposable);
-	context.subscriptions.push(callGraphDisposable);
-	context.subscriptions.push(viewCallGraphDisposable);
+		log('CodeLens provider initialized');
+	};
+
+	// Initialize CodeLens provider when DocumentSymbolProvider is ready
+	const initializeWhenReady = async () => {
+		log('Waiting for DocumentSymbolProvider to be available...');
+		const isReady = await waitForDocumentSymbolProvider(10000); // 10 second max delay
+		
+		if (isReady) {
+			await initializeCodeLensProvider();
+		} else {
+			log('DocumentSymbolProvider not available, initializing CodeLens provider anyway');
+			await initializeCodeLensProvider();
+		}
+	};
+
+	// Start initialization
+	initializeWhenReady();
+
 	context.subscriptions.push(noopDisposable);
 }
 

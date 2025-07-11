@@ -34,31 +34,24 @@ export async function computeCallGraph(document: vscode.TextDocument): Promise<C
   const functions = await detectFunctions(document);
   if (functions.length === 0) return [];
 
-  // Get all function names for filtering
   const functionNames = new Set(functions.map(f => f.name));
   
-  // Maps to store call relationships
   const directCallees = new Map<string, Set<string>>();
   const directCallers = new Map<string, Set<string>>();
 
-  // Initialize maps for all functions
   for (const func of functions) {
     directCallees.set(func.name, new Set());
     directCallers.set(func.name, new Set());
   }
 
-  // Check if call hierarchy is supported
   const hasCallHierarchySupport = await checkCallHierarchySupport(document);
   
   if (hasCallHierarchySupport) {
-    // Use language server approach
     await buildCallGraphWithLanguageServer(functions, directCallees, directCallers, functionNames, document);
   } else {
-    // Fall back to regex-based approach
     await buildCallGraphWithRegex(functions, directCallees, directCallers, document);
   }
 
-  // Build depth-2 relationships
   const buildDepth2 = (
     name: string,
     directMap: Map<string, Set<string>>
@@ -78,7 +71,6 @@ export async function computeCallGraph(document: vscode.TextDocument): Promise<C
     return Array.from(depth2);
   };
 
-  // Build final result
   const entries: CallGraphEntry[] = [];
   for (const func of functions) {
     const depth1Callees = Array.from(directCallees.get(func.name) ?? []);
@@ -128,13 +120,10 @@ async function buildCallGraphWithLanguageServer(
   functionNames: Set<string>,
   document: vscode.TextDocument
 ): Promise<void> {
-  // Process each function
   for (const func of functions) {
     try {
-      // Get position inside the function (middle of the function)
       const position = new vscode.Position(func.startLine, 0);
       
-      // Query call hierarchy provider for this function
       const callHierarchyItems = await vscode.commands.executeCommand<vscode.CallHierarchyItem[]>(
         'vscode.executeCallHierarchyProvider',
         document.uri,
@@ -142,10 +131,8 @@ async function buildCallGraphWithLanguageServer(
       );
 
       if (callHierarchyItems && callHierarchyItems.length > 0) {
-        // Process incoming calls (callers)
         await processIncomingCalls(callHierarchyItems[0], func.name, directCallers, functionNames, document);
         
-        // Process outgoing calls (callees)
         await processOutgoingCalls(callHierarchyItems[0], func.name, directCallees, functionNames, document);
       }
     } catch (error) {
@@ -178,15 +165,13 @@ async function buildCallGraphWithRegex(
     const fn = functions[i];
     const fnEndLine = getEndLine(i);
 
-    // Capture the full text of the function body
     const code = document.getText(
       new vscode.Range(fn.startLine, 0, fnEndLine + 1, 0)
     );
 
     const callees = new Set<string>();
     for (const candidate of funcNames) {
-      if (candidate === fn.name) continue; // skip self
-      // Simple call detection with word boundary
+      if (candidate === fn.name) continue;
       const pattern = new RegExp(`\\b${candidate}\\s*\\(`);
       if (pattern.test(code)) {
         callees.add(candidate);
@@ -203,9 +188,7 @@ async function buildCallGraphWithRegex(
   }
 }
 
-/**
- * Process incoming calls (callers) for a function using call hierarchy.
- */
+
 async function processIncomingCalls(
   item: vscode.CallHierarchyItem,
   functionName: string,

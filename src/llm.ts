@@ -3,6 +3,7 @@ import { BedrockRuntimeClient, InvokeModelCommand } from "@aws-sdk/client-bedroc
 import { log } from './utils';
 import path from 'path';
 import fs from 'fs';
+// Official Gemini SDK – loaded dynamically via require to avoid build-time dependency issue
 
 interface ChatMessage {
   role: "system" | "user" | "assistant";
@@ -31,7 +32,9 @@ interface RetryConfig {
   backoffMultiplier: number;
 }
 
-const DEFAULT_MODEL = "anthropic.claude-3-haiku-20240307-v1:0"; // cost-effective but capable
+const DEFAULT_MODEL = "anthropic.claude-3-haiku-20240307-v1:0"; 
+// const DEFAULT_MODEL = "anthropic.claude-sonnet-4-20250514-v1:0";
+
 const DEFAULT_RETRY_CONFIG: RetryConfig = {
   maxRetries: 3,
   baseDelay: 1000, // 1 second
@@ -173,102 +176,246 @@ class AWSBedrockService implements LLMService {
   }
 
   async invoke(messages: ChatMessage[], options?: LLMOptions): Promise<string> {
-  const cfg = vscode.workspace.getConfiguration('codetorch');
-  const modelId = options?.model || cfg.get<string>('model') || DEFAULT_MODEL;
-  const maxTokens = options?.maxTokens ?? 8192;
-  const temperature = options?.temperature ?? cfg.get<number>('temperature') ?? 0;
+    const cfg = vscode.workspace.getConfiguration('codetorch');
+    const modelId = options?.model || cfg.get<string>('model') || DEFAULT_MODEL;
+    // Anthropic Claude models support up to 4 096 output tokens (see Bedrock docs).
+    const requestedMax = options?.maxTokens ?? 8192;
+    const maxTokens = Math.min(requestedMax, 4096);
+    const temperature = options?.temperature ?? cfg.get<number>('temperature') ?? 0;
 
-  let payload: Record<string, unknown>;
+    let payload: Record<string, unknown>;
 
-  if (modelId.startsWith('anthropic.')) {
-    // Anthropic models require a specific schema
-    let systemPrompt: string | undefined;
-    const chatMessages: { role: 'user' | 'assistant'; content: string }[] = [];
+    if (modelId.startsWith('anthropic.') || modelId.startsWith('us.anthropic.')) {
+      // Anthropic models require a specific schema
+      let systemPrompt: string | undefined;
+      // Claude 3/4 Messages API expects `content` to be an **array** of content blocks.
+      const chatMessages: { role: 'user' | 'assistant'; content: { type: 'text'; text: string }[] }[] = [];
 
-    for (const msg of messages) {
-      if (msg.role === 'system') {
-        systemPrompt = systemPrompt ? `${systemPrompt}\n${msg.content}` : msg.content;
-      } else if (msg.role === 'user' || msg.role === 'assistant') {
-        chatMessages.push({ role: msg.role, content: msg.content });
+      for (const msg of messages) {
+        if (msg.role === 'system') {
+          systemPrompt = systemPrompt ? `${systemPrompt}\n${msg.content}` : msg.content;
+        } else if (msg.role === 'user' || msg.role === 'assistant') {
+          chatMessages.push({
+            role: msg.role,
+            content: [{ type: 'text', text: msg.content }]
+          });
+        }
+      }
+
+      payload = {
+        anthropic_version: 'bedrock-2023-05-31',
+        max_tokens: maxTokens,
+        temperature: temperature,
+        messages: chatMessages,
+        ...(systemPrompt ? { system: systemPrompt } : {})
+      };
+    } else if (modelId.startsWith('meta.llama') || modelId.startsWith('us.meta.llama')) {
+      // Meta Llama 3 models use a native prompt string plus native parameters
+      let systemMessage: string | undefined;
+      let userMessage: string | undefined;
+
+      for (const msg of messages) {
+        if (msg.role === 'system' && !systemMessage) {
+          systemMessage = msg.content;
+        } else if (msg.role === 'user') {
+          // Keep the most recent user turn
+          userMessage = msg.content;
+        }
+      }
+
+      if (!userMessage) {
+        throw new Error('Llama 3 invocation requires at least one user message');
+      }
+
+      // Build Llama 3 instruction-style prompt
+      const promptParts: string[] = [];
+      promptParts.push('<|begin_of_text|>');
+      if (systemMessage) {
+        promptParts.push(`<|start_header_id|>system<|end_header_id|>\n${systemMessage}\n<|eot_id|>`);
+      }
+      promptParts.push(`<|start_header_id|>user<|end_header_id|>\n${userMessage}\n<|eot_id|>`);
+      // Assistant header to signal model to generate
+      promptParts.push('<|start_header_id|>assistant<|end_header_id|>');
+
+      const llamaPrompt = promptParts.join('\n');
+
+      payload = {
+        prompt: llamaPrompt,
+        max_gen_len: Math.min(maxTokens, 2048), // Llama 3 supports up to 2048 generated tokens
+        temperature: temperature,
+        top_p: cfg.get<number>('topP') ?? 0.9
+      };
+    } else {
+      // Generic schema (e.g., Titan, Llama)
+      payload = {
+        messages: messages.map(m => ({ role: m.role, content: m.content })),
+        max_tokens: maxTokens,
+        temperature: temperature
+      };
+    }
+
+    log('LLM chat messages', messages);
+    log('LLM payload preview', JSON.stringify(payload).slice(0, 800));
+
+    const cmd = new InvokeModelCommand({
+      modelId,
+      contentType: 'application/json',
+      accept: 'application/json',
+      body: JSON.stringify(payload)
+    });
+
+    log('Bedrock invoke', { modelId, maxTokens, temperature });
+    let res;
+    try {
+      res = await this.client.send(cmd);
+    } catch (error: any) {
+      // Surface the detailed Bedrock error message to the output channel
+      log('Bedrock invoke error', {
+        name: error?.name,
+        message: error?.message,
+        details: error,
+      });
+      throw error;
+    }
+    log('Received Bedrock response headers', res.$metadata);
+    if (!res.body) {
+      throw new Error('Empty response from Bedrock');
+    }
+
+    // Bedrock returns a stream; convert to string (Node env)
+    const text = await streamToString(res.body as any);
+    const parsed = JSON.parse(text);
+
+    log('LLM parsed response snippet', typeof parsed === 'string' ? parsed.slice(0,100) : parsed);
+
+    // Anthropic / OpenAI-compatible schema
+    if (Array.isArray(parsed?.choices) && parsed.choices.length) {
+      const choice = parsed.choices[0];
+      return (
+        choice.message?.content || // chat
+        choice.text ||
+        ''
+      );
+    }
+
+    // Titan Text models
+    if (Array.isArray(parsed?.results) && parsed.results.length) {
+      return parsed.results[0].outputText || parsed.results[0].text || '';
+    }
+
+    // Meta Llama 3 native response
+    if (typeof parsed.generation === 'string') {
+      return parsed.generation;
+    }
+
+    // Cohere / Llama2 etc.
+    if (typeof parsed.generated_text === 'string') {
+      return parsed.generated_text;
+    }
+
+    // Generic {content: string}
+    if (typeof parsed.content === 'string') {
+      return parsed.content;
+    }
+
+    // Bedrock message-style schema (Claude streaming or non-chat)
+    if (parsed?.type === 'message' && Array.isArray(parsed.content)) {
+      const textPieces = parsed.content
+        .filter((c: any) => c?.type === 'text' && typeof c.text === 'string')
+        .map((c: any) => c.text);
+      if (textPieces.length) {
+        return textPieces.join('');
       }
     }
 
-    payload = {
-      anthropic_version: 'bedrock-2023-05-31',
-      max_tokens: maxTokens,
-      temperature,
-      messages: chatMessages,
-      ...(systemPrompt ? { system: systemPrompt } : {})
-    };
-  } else {
-    // Generic schema (e.g., Titan, Llama)
-    payload = {
-      messages: messages.map(m => ({ role: m.role, content: m.content })),
-      max_tokens: maxTokens,
-      temperature
-    };
+    // As a last resort, stringify the whole object
+    return typeof text === 'string' ? text : JSON.stringify(parsed);
   }
+}
 
-  log('LLM chat messages', messages);
-  log('LLM payload preview', JSON.stringify(payload).slice(0, 800));
+/**
+ * Google Gemini LLM Service Implementation
+ */
+class GoogleGeminiService implements LLMService {
+  name = 'google-gemini';
+  private apiKey: string;
+  private genAI: any; // Lazy-initialised GoogleGenAI instance (SDK lacks TS types)
 
-  const cmd = new InvokeModelCommand({
-    modelId,
-    contentType: 'application/json',
-    accept: 'application/json',
-    body: JSON.stringify(payload)
-  });
+  constructor() {
+    this.apiKey = vscode.workspace.getConfiguration('codetorch').get<string>('googleApiKey') ||
+      process.env.GEMINI_API_KEY ||
+      process.env.GOOGLE_API_KEY ||
+      process.env.GOOGLE_AI_API_KEY || '';
 
-  log('Bedrock invoke', { modelId, maxTokens, temperature });
-    const res = await this.client.send(cmd);
-  log('Received Bedrock response headers', res.$metadata);
-  if (!res.body) {
-    throw new Error('Empty response from Bedrock');
-  }
+    if (!this.apiKey) {
+      log('Google Gemini API key not configured. Set `codetorch.googleApiKey` or env var GEMINI_API_KEY.');
+    }
 
-  // Bedrock returns a stream; convert to string (Node env)
-  const text = await streamToString(res.body as any);
-  const parsed = JSON.parse(text);
-
-  log('LLM parsed response snippet', typeof parsed === 'string' ? parsed.slice(0,100) : parsed);
-
-  // Anthropic / OpenAI-compatible schema
-  if (Array.isArray(parsed?.choices) && parsed.choices.length) {
-    const choice = parsed.choices[0];
-    return (
-      choice.message?.content || // chat
-      choice.text ||
-      ''
-    );
-  }
-
-  // Titan Text models
-  if (Array.isArray(parsed?.results) && parsed.results.length) {
-    return parsed.results[0].outputText || parsed.results[0].text || '';
-  }
-
-  // Cohere / Llama2 etc.
-  if (typeof parsed.generated_text === 'string') {
-    return parsed.generated_text;
-  }
-
-  // Generic {content: string}
-  if (typeof parsed.content === 'string') {
-    return parsed.content;
-  }
-
-  // Bedrock message-style schema (Claude streaming or non-chat)
-  if (parsed?.type === 'message' && Array.isArray(parsed.content)) {
-    const textPieces = parsed.content
-      .filter((c: any) => c?.type === 'text' && typeof c.text === 'string')
-      .map((c: any) => c.text);
-    if (textPieces.length) {
-      return textPieces.join('');
+    // Dynamically require the SDK only when the service is first constructed
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { GoogleGenAI } = require('@google/genai');
+      this.genAI = new GoogleGenAI({ apiKey: this.apiKey });
+    } catch (err) {
+      log('Failed to load @google/genai package', err as any);
+      throw new Error('Missing dependency @google/genai – please run `npm install @google/genai` inside the extension workspace.');
     }
   }
 
-  // As a last resort, stringify the whole object
-  return typeof text === 'string' ? text : JSON.stringify(parsed);
+  async invoke(messages: ChatMessage[], options?: LLMOptions): Promise<string> {
+    log('Gemini invoke');
+    if (!this.apiKey) {
+      throw new Error('Google Gemini API key not configured. Set `codetorch.googleApiKey` in settings or GEMINI_API_KEY env var.');
+    }
+
+    const cfg = vscode.workspace.getConfiguration('codetorch');
+    const model = options?.model || cfg.get<string>('geminiModel') || 'gemini-2.5-flash';
+    const requestedMax = options?.maxTokens ?? 4096;
+    const temperature = options?.temperature ?? cfg.get<number>('temperature') ?? 0.3;
+
+    // Build chat history and extract system instruction (if any)
+    let systemPrompt: string | undefined;
+    const historyParts = [] as any[];
+    for (const msg of messages.slice(0, -1)) {
+      if (msg.role === 'system') {
+        systemPrompt = systemPrompt ? `${systemPrompt}\n${msg.content}` : msg.content;
+      } else {
+        historyParts.push({
+          role: msg.role === 'assistant' ? 'model' : 'user',
+          parts: [{ text: msg.content }]
+        });
+      }
+    }
+
+    const lastMsg = messages[messages.length - 1];
+    if (!lastMsg || lastMsg.role !== 'user') {
+      throw new Error('Gemini invocation expects the last message to be from the user.');
+    }
+
+    // Create a transient chat session for each invoke
+    const chatOptions: any = {
+      model,
+      history: historyParts,
+      generationConfig: {
+        temperature,
+        maxOutputTokens: requestedMax
+      }
+    };
+    if (systemPrompt) {
+      chatOptions.systemInstruction = systemPrompt;
+    }
+
+    const chat = this.genAI.chats.create(chatOptions);
+
+    try {
+      const response = await chat.sendMessage({ message: lastMsg.content });
+      const text = response?.text ?? '';
+      log('Gemini response', text.slice(0, 400));
+      return text;
+    } catch (error: any) {
+      log('Gemini invoke error', { name: error?.name, message: error?.message, details: error });
+      throw error;
+    }
   }
 }
 
@@ -282,6 +429,7 @@ class LLMServiceManager {
   constructor() {
     // Register default AWS Bedrock service
     this.registerService(new AWSBedrockService());
+    this.registerService(new GoogleGeminiService());
   }
 
   registerService(service: LLMService): void {
@@ -313,6 +461,24 @@ class LLMServiceManager {
 
 // Global service manager instance
 const serviceManager = new LLMServiceManager();
+// Register Google Gemini service (optional unless explicitly selected)
+try {
+  serviceManager.registerService(new GoogleGeminiService());
+} catch (err) {
+  log('Failed to register Google Gemini service', err as any);
+}
+
+/**
+ * Determine which service to use based on model name
+ */
+function getServiceForModel(modelId: string): string {
+  // Check if it's a Gemini model
+  if (modelId.startsWith('gemini-') || modelId.includes('gemini')) {
+    return 'google-gemini';
+  }
+  // Default to AWS Bedrock for all other models
+  return 'aws-bedrock';
+}
 
 /**
  * Invoke an LLM with automatic service selection and retry logic
@@ -328,9 +494,14 @@ export async function invokeLLM(messages: ChatMessage[], options?: LLMOptions): 
     backoffMultiplier: cfg.get<number>('retryBackoffMultiplier') ?? DEFAULT_RETRY_CONFIG.backoffMultiplier
   };
 
-  // Get the service to use
-  const serviceName = cfg.get<string>('llmService') || 'aws-bedrock';
+  // Determine which service to use based on model name
+  log('Invoking LLM', cfg.get<string>('model'));
+  const modelId = options?.model || cfg.get<string>('model') || DEFAULT_MODEL;
+  log('Getting servic name for LLM', modelId);
+  const serviceName = getServiceForModel(modelId);
+  log('Getting service for LLM', serviceName);
   const service = serviceManager.getService(serviceName);
+  log('Using LLM service', serviceName, modelId);
 
   return withRetry(async () => {
     return await service.invoke(messages, options);
