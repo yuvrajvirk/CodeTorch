@@ -6,13 +6,13 @@ AI-generated natural language outlines help you understand code faster, with les
 ## Features
 
 **Annotations**: Outlines are rendered as annotations to stay unobtrusive even when outlines are extensive and so your source code isn’t touched.
-![CodeTorchPythonExampleImg](./images/CodeTorchPythonExampleImg.png)
+![CodeTorchPythonExampleImg](https://github.com/yuvrajvirk/CodeTorch/blob/main/images/CodeTorchPythonExampleImg.png?raw=true)
 
 **Live Documentation**: Outlines update in the background as you save your work.
-![CodeTorchEditing](./images/CodeTorchEditing.gif)
+![CodeTorchEditing](https://github.com/yuvrajvirk/CodeTorch/blob/main/images/codeTorchEditing.gif?raw=true)
 
 **Reviewing AI-generated Code**: Outlines overlay AI-generated diffs for easier review.
-![CodeTorchEditing](./images/CodeTorchCursor.gif)
+![CodeTorchEditing](https://github.com/yuvrajvirk/CodeTorch/blob/main/images/CodeTorchCursor.gif?raw=true)
 
 **Storing Documentation**: Outlines are saved in your project’s root (/.codetorch) and can be pushed to GitHub for re-use by collaborators.
 
